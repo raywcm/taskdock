@@ -355,6 +355,7 @@ func (m model) View() tea.View {
 	t := m.locale().Text
 	p := m.palette()
 	var lines []string
+	showMonitor := false
 	if m.width < 26 || m.height < 9 {
 		lines = []string{m.header(width), t("small_window"), "q " + t("quit")}
 	} else if m.mode == "help" {
@@ -367,6 +368,7 @@ func (m model) View() tea.View {
 		lines = m.connectionView(width)
 	} else if m.monitoring && m.tab == tabRunning {
 		lines = m.monitorView(width)
+		showMonitor = m.width >= 50 && m.height >= 12
 	} else if m.tab == tabSettings {
 		lines = m.settingsView(width)
 	} else {
@@ -422,8 +424,22 @@ func (m model) View() tea.View {
 			if theme == "light" {
 				base = "\x1b[0m\x1b[38;2;31;42;59m\x1b[48;2;246;248;252m"
 			}
-			line = strings.NewReplacer("\x1b[m", base, "\x1b[0m", base).Replace(fit(line, m.width))
-			line = base + line + "\x1b[m"
+			paint := func(text string) string {
+				return base + strings.NewReplacer("\x1b[m", base, "\x1b[0m", base).Replace(text) + "\x1b[m"
+			}
+			left, right, height := m.monitorGeometry()
+			if showMonitor && m.monitorFrame.Ready && m.monitorFrame.Err == nil && i >= 5 && i < 5+height {
+				// The manager theme belongs to the sidebar and gutters. The
+				// preview's default colors and inverse highlights belong to the
+				// application, just as they do in a native attachment.
+				x := left + 5
+				label := fit(ansi.Cut(line, 0, x), x)
+				preview := fit(ansi.Cut(line, x, x+right), right)
+				gutter := strings.Repeat(" ", max(0, m.width-x-right))
+				line = paint(label) + "\x1b[0m" + preview + "\x1b[0m" + paint(gutter)
+			} else {
+				line = paint(fit(line, m.width))
+			}
 		}
 		lines[i] = line
 	}

@@ -41,7 +41,7 @@ nfpms:
 checksum:
   name_template: checksums.txt
 snapshot:
-  version_template: '0.7.2-dev'
+  version_template: '0.7.3-dev'
 changelog:
   disable: true
 release:

@@ -171,3 +171,5 @@ brokers running. See [compatibility](compatibility.md) for terminal limitations.
 Automatic theme reads the terminal background and uses the same colors as the
 matching Light/Dark setting. COLORFGBG is a fallback for terminals without a
 background-color reply; explicit theme choices always take priority.
+Themes style the manager UI. Session previews and native attachments keep the
+application's colors and terminal defaults.

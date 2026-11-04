@@ -11,6 +11,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func parseRecovery(t *testing.T, data string) *recovery {
@@ -22,6 +25,7 @@ func parseRecovery(t *testing.T, data string) *recovery {
 	for _, b := range []byte(data) {
 		parser.Advance(b)
 	}
+	r.modes.Rendition = r.rendition()
 	return r
 }
 
@@ -75,6 +79,51 @@ func TestCheckpointSurvivesMissingOldModeEntryAndRejectsOtherInstance(t *testing
 	changed := newRecovery(task.Runtime{TaskID: r.modes.TaskID, InstanceID: other}, r.modes)
 	if changed.fullscreen() {
 		t.Fatal("reused another broker's terminal state")
+	}
+}
+
+func TestRenditionSurvivesReconnectRotationAndInstanceChange(t *testing.T) {
+	for _, style := range []string{
+		"\x1b[1;3;38;2;229;237;247;48;2;20;26;38m",
+		"\x1b[2;7;38;5;244;48;5;17m",
+		"\x1b[4:3;58:2::1:2:3;31;44m",
+		"\x1b[1;31m\x1b[22;39;49m",
+	} {
+		r := parseRecovery(t, style)
+		want := r.pen
+		// Only generated SGR leaves the boundary scanner. Parsing the output
+		// must restore the same style over any stale manager/other-session pen.
+		restored := parseRecovery(t, "\x1b[2;7;32;45m"+r.rendition())
+		if !restored.pen.Equal(&want) {
+			t.Fatalf("rendition changed across attach: %q", style)
+		}
+		same := newRecovery(task.Runtime{TaskID: r.modes.TaskID, InstanceID: r.modes.InstanceID}, r.modes)
+		p := same.parser()
+		for _, b := range []byte("\x1b[Hrotated log without new colors") {
+			p.Advance(b)
+		}
+		if !same.pen.Equal(&want) {
+			t.Fatalf("rotation forgot active rendition: %q", style)
+		}
+		other, _ := task.NewID()
+		changed := newRecovery(task.Runtime{TaskID: r.modes.TaskID, InstanceID: other}, r.modes)
+		if !changed.pen.IsZero() {
+			t.Fatal("inherited rendition from another task instance")
+		}
+	}
+	reset := parseRecovery(t, "\x1b[2;31;44m\x1bc")
+	if !reset.pen.IsZero() || reset.rendition() != "\x1b[m" {
+		t.Fatal("terminal reset retained the old rendition")
+	}
+}
+
+func TestCheckpointRenditionCannotReplayOtherControls(t *testing.T) {
+	r := parseRecovery(t, "")
+	r.modes.Rendition = "\x1b]52;c;SECRET\a\x1b[?1049h\x1b[6n\x1b[31mTEXT"
+	got := newRecovery(task.Runtime{TaskID: r.modes.TaskID, InstanceID: r.modes.InstanceID}, r.modes)
+	want := uv.Style{Fg: ansi.Red}
+	if got.fullscreen() || !got.pen.Equal(&want) || strings.Contains(got.rendition(), "SECRET") || strings.Contains(got.rendition(), "TEXT") {
+		t.Fatal("checkpoint replayed more than generated rendition")
 	}
 }
 

@@ -27,6 +27,7 @@ def main():
         ('monitor-parser', ['monitor_panic_regression.py']),
         ('multi-terminal', ['multi_terminal_regression.py']),
         ('automatic-theme', ['theme_regression.py']),
+        ('application-colors', ['color_regression.py']),
         ('session-search', ['search_regression.py']),
         ('idle-cpu', ['idle_cpu_regression.py']),
         ('screen', ['screen_regression.py']),

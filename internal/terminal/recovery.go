@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/raywcm/taskdock/internal/ipc"
 	"github.com/raywcm/taskdock/internal/protocol"
@@ -21,7 +22,10 @@ import (
 
 var privateModes = map[int]bool{1: true, 6: true, 7: true, 9: true, 25: true, 47: true, 1047: true, 1049: true, 1000: true, 1002: true, 1003: true, 1004: true, 1005: true, 1006: true, 1015: true, 1016: true, 2004: true}
 
-type recovery struct{ modes task.TerminalModes }
+type recovery struct {
+	modes task.TerminalModes
+	pen   uv.Style
+}
 
 func newRecovery(r task.Runtime, cached task.TerminalModes) *recovery {
 	modes := task.TerminalModes{SchemaVersion: 1, TaskID: r.TaskID, InstanceID: r.InstanceID, Private: map[int]bool{}}
@@ -37,7 +41,23 @@ func newRecovery(r task.Runtime, cached task.TerminalModes) *recovery {
 			modes.CursorStyle = cached.CursorStyle
 		}
 	}
-	return &recovery{modes: modes}
+	state := &recovery{modes: modes}
+	if cached.TaskID == state.modes.TaskID && cached.InstanceID == state.modes.InstanceID && len(cached.Rendition) <= 512 {
+		// Checkpoints contain generated SGR, but still parse them as untrusted
+		// input. Never replay saved strings or let them change other modes.
+		p := ansi.NewParser()
+		p.SetDataSize(1)
+		p.SetHandler(ansi.Handler{HandleCsi: func(cmd ansi.Cmd, params ansi.Params) {
+			if cmd == 'm' {
+				uv.ReadStyle(params, &state.pen)
+			}
+		}})
+		for _, b := range []byte(cached.Rendition) {
+			p.Advance(b)
+		}
+		state.modes.Rendition = state.rendition()
+	}
+	return state
 }
 
 func (r *recovery) parser() *ansi.Parser {
@@ -45,6 +65,10 @@ func (r *recovery) parser() *ansi.Parser {
 	p.SetDataSize(1) // OSC/DCS contents are ignored, never replayed.
 	p.SetHandler(ansi.Handler{
 		HandleCsi: func(cmd ansi.Cmd, params ansi.Params) {
+			if cmd == 'm' {
+				uv.ReadStyle(params, &r.pen)
+				return
+			}
 			if cmd.Intermediate() == ' ' && cmd.Prefix() == 0 && cmd.Final() == 'q' {
 				value, _, _ := params.Param(0, 0)
 				if value >= 0 && value <= 6 {
@@ -97,6 +121,8 @@ func (r *recovery) parser() *ansi.Parser {
 				r.modes.Insert = nil
 				r.modes.Keypad = nil
 				r.modes.CursorStyle = nil
+				r.pen = uv.Style{}
+				r.modes.Rendition = ""
 			}
 		},
 	})
@@ -106,6 +132,7 @@ func (r *recovery) parser() *ansi.Parser {
 // inspect scans retained logs only at connection boundaries. The normal PTY and
 // socket output path remains an opaque byte stream, with no parser or renderer.
 func (r *recovery) inspect(repository *store.JSON) error {
+	defer func() { r.modes.Rendition = r.rendition() }()
 	parser := r.parser()
 	for _, name := range []string{"output.log.1", "output.log"} {
 		path, err := repository.Path(r.modes.TaskID, name)
@@ -151,6 +178,16 @@ func (r *recovery) inspect(repository *store.JSON) error {
 }
 func (r *recovery) fullscreen() bool {
 	return r.modes.Private[47] || r.modes.Private[1047] || r.modes.Private[1049]
+}
+
+// Apply after the identity banner, before any application bytes. Incremental
+// redraws can assume their previous foreground, background and attributes still
+// exist even though the manager (or another session) changed the physical pen.
+func (r *recovery) rendition() string {
+	if r.pen.IsZero() {
+		return ansi.ResetStyle
+	}
+	return ansi.ResetStyle + r.pen.String()
 }
 
 // prefix synthesizes only whitelisted modes. No text, OSC, clipboard commands,

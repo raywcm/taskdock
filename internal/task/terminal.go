@@ -10,4 +10,5 @@ type TerminalModes struct {
 	Insert        *bool        `json:"insert,omitempty"`
 	Keypad        *bool        `json:"keypad,omitempty"`
 	CursorStyle   *int         `json:"cursor_style,omitempty"`
+	Rendition     string       `json:"rendition,omitempty"`
 }

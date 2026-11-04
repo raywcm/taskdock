@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/raywcm/taskdock/internal/config"
 	"github.com/raywcm/taskdock/internal/monitor"
@@ -717,6 +718,35 @@ func TestMonitorSplitSelectionFailureAndReturn(t *testing.T) {
 	m, cmd = press(m, 'v')
 	if m.monitoring || cmd != nil {
 		t.Fatal("monitor offered outside Running")
+	}
+}
+
+func TestMonitorThemeDoesNotRecolorApplicationCells(t *testing.T) {
+	for _, theme := range []string{"light", "dark"} {
+		m := readyModel(t)
+		m.settings.Theme = theme
+		m.width, m.height = 80, 24
+		m.monitoring = true
+		m.monitorFrame = monitor.Frame{Ready: true, Rows: []string{
+			"PLAIN \x1b[7mREVERSE\x1b[0m \x1b[38;2;12;34;56mRGB\x1b[0m \x1b[38;5;202mINDEX\x1b[0m",
+		}}
+		line := strings.Split(m.View().Content, "\n")[5]
+		screen := uv.NewScreenBuffer(m.width, 1)
+		uv.NewStyledString(line).Draw(screen, uv.Rect(0, 0, m.width, 1))
+		cells := screen.Buffer.Lines[0]
+		left, _, _ := m.monitorGeometry()
+		x := left + 5
+		for _, test := range []struct {
+			x     int
+			style uv.Style
+		}{{x, uv.Style{}}, {x + 6, uv.Style{Attrs: uv.AttrReverse}}, {x + 14, uv.Style{Fg: color.RGBA{R: 12, G: 34, B: 56, A: 255}}}, {x + 18, uv.Style{Fg: ansi.IndexedColor(202)}}} {
+			if !cells[test.x].Style.Equal(&test.style) {
+				t.Fatalf("%s theme recolored app cell %d: %+v", theme, test.x, cells[test.x].Style)
+			}
+		}
+		if cells[0].Style.Bg == nil || cells[len(cells)-1].Style.Bg == nil {
+			t.Fatal("application defaults escaped into the manager gutters")
+		}
 	}
 }
 

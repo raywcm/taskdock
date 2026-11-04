@@ -147,6 +147,9 @@ func AttachWithOptions(ctx context.Context, state string, record task.Record, in
 		if err := writeTTY(attachCtx, fd, []byte(identity.banner())); err != nil {
 			return err
 		}
+		if err := writeTTY(attachCtx, fd, []byte(restore.rendition())); err != nil {
+			return err
+		}
 		if session.Welcome.Replay != "initial" {
 			if restore.fullscreen() && sizeOwner.Load() {
 				var err error

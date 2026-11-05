@@ -325,9 +325,8 @@ func (m *Manager) Delete(ctx context.Context, ref string) error {
 		return errors.New("task broker is still alive; stop it before deleting")
 	}
 	defer release()
-	if r.Runtime != nil && r.Runtime.State != task.Exited && r.Runtime.State != task.Failed {
-		return errors.New("broker disappeared; run tdock recover before deleting")
-	}
+	// The lock, rather than stale runtime metadata or a reused PID, proves
+	// that no broker owns this record. Delete never signals recorded PIDs.
 	socket, err := ipc.SocketPath(m.Store.Root(), r.Spec.ID)
 	if err != nil {
 		return err

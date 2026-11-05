@@ -53,6 +53,7 @@ jobs:
           "$RUNNER_TEMP/tdock-screen/bin/python" scripts/multi_terminal_regression.py bin/tdock
           "$RUNNER_TEMP/tdock-screen/bin/python" scripts/theme_regression.py bin/tdock
           "$RUNNER_TEMP/tdock-screen/bin/python" scripts/color_regression.py bin/tdock
+          "$RUNNER_TEMP/tdock-screen/bin/python" scripts/stale_delete_regression.py bin/tdock
           "$RUNNER_TEMP/tdock-screen/bin/python" scripts/multi_terminal_regression.py bin/tdock "$RUNNER_TEMP/legacy-mtask"
           "$RUNNER_TEMP/tdock-screen/bin/python" scripts/search_regression.py bin/tdock
           "$RUNNER_TEMP/tdock-screen/bin/python" scripts/idle_cpu_regression.py bin/tdock

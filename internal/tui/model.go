@@ -748,7 +748,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.input.Focus()
 				}
 				if k == "x" || k == "delete" || k == "backspace" {
-					if active(r) {
+					if active(r) && r.Health != "unreachable" {
 						m.message = m.locale().Text("stop_before_delete")
 						return m, nil
 					}

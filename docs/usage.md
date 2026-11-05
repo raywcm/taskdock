@@ -72,8 +72,10 @@ tdock logs --tail 4096 work-old
 tdock delete work-old
 ```
 
-`stop` sends TERM, then KILL after one second if necessary. Deletion requires a
-finished task with no active broker. `show` reports exit code and signal.
+`stop` sends TERM, then KILL after one second if necessary. Deletion requires no
+active broker. Confirmed dead sessions can be deleted directly, including from
+the Running tab, without running `recover` first. A timeout alone cannot bypass
+the broker lock. `show` reports exit code and signal.
 Detach returns 0; an application exit is returned by `attach`.
 
 Logs retain two approximately 8 MiB files. Normal viewing strips control

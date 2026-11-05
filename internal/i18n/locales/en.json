@@ -76,7 +76,7 @@
     "confirm_hint": "←/→ select · Enter · y confirm · Esc cancel",
     "stop_prompt": "Stop this session and its running processes?",
     "stop_hint": "y stop · any other key cancel",
-    "delete_prompt": "Delete this stopped session and its logs?",
+    "delete_prompt": "Delete this session and its logs?",
     "delete_hint": "y delete · any other key cancel",
     "language": "Language",
     "theme": "Theme",

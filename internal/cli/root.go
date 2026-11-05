@@ -23,7 +23,7 @@ import (
 	"golang.org/x/term"
 )
 
-var Version = "0.7.3-dev"
+var Version = "0.7.4-dev"
 
 type ExitError struct{ Code int }
 
@@ -311,7 +311,7 @@ func NewRoot() *cobra.Command {
 	}}
 	rename.Flags().StringVarP(&renameTarget, "target", "t", "", "target session name or ID")
 	root.AddCommand(rename)
-	remove := &cobra.Command{Use: "delete TASK", Short: "Delete a stopped task and its history", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	remove := &cobra.Command{Use: "delete TASK", Short: "Delete a stopped or dead task and its history", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		m, err := open()
 		if err != nil {
 			return err

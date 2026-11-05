@@ -224,6 +224,32 @@ func TestStopAndDeleteTabs(t *testing.T) {
 	}
 }
 
+func TestUnreachableRunningSessionCanBeDeletedWithConfirmation(t *testing.T) {
+	for _, key := range []rune{tea.KeyDelete, tea.KeyBackspace, 'x'} {
+		m := readyModel(t)
+		m.tasks[0].Health = "unreachable"
+		id := m.tasks[0].Spec.ID
+		m, cmd := press(m, key)
+		noAction(t, cmd)
+		if m.mode != "delete" || m.target != id {
+			t.Fatal("unreachable session was trapped behind Stop")
+		}
+		cancel, cmd := press(m, tea.KeyEnter)
+		noAction(t, cmd)
+		if cancel.mode != "" || m.catalog.(*fakeBackend).deleted != "" {
+			t.Fatal("default confirmation deleted an unreachable session")
+		}
+		m, cmd = press(m, 'y')
+		if cmd == nil {
+			t.Fatal("confirmed deletion did not reach the backend lock check")
+		}
+		cmd()
+		if m.catalog.(*fakeBackend).deleted != id {
+			t.Fatal("deleted the wrong unreachable session")
+		}
+	}
+}
+
 func TestStopRequiresExplicitConfirmation(t *testing.T) {
 	for _, key := range []rune{tea.KeyEscape, tea.KeyEnter, 'n', 's', 'q'} {
 		m := readyModel(t)

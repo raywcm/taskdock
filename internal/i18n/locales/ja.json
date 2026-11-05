@@ -77,7 +77,7 @@
     "confirm_hint": "←/→ 選択 · Enter · y 確定 · Esc キャンセル",
     "stop_prompt": "このセッションと実行中のプロセスを停止しますか？",
     "stop_hint": "y 停止 · その他のキーでキャンセル",
-    "delete_prompt": "停止済みセッションとログを削除しますか？",
+    "delete_prompt": "このセッションとログを削除しますか？",
     "delete_hint": "y 削除 · その他のキーでキャンセル",
     "language": "言語",
     "theme": "テーマ",

@@ -77,7 +77,7 @@
     "confirm_hint": "←/→ choisir · Enter · y confirmer · Esc annuler",
     "stop_prompt": "Arrêter cette session et ses processus en cours ?",
     "stop_hint": "y arrêter · toute autre touche annule",
-    "delete_prompt": "Supprimer cette session arrêtée et ses journaux ?",
+    "delete_prompt": "Supprimer cette session et ses journaux ?",
     "delete_hint": "y supprimer · toute autre touche annule",
     "language": "Langue",
     "theme": "Thème",

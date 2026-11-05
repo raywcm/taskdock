@@ -80,7 +80,7 @@
     "confirm_hint": "←/→ 选择 · Enter · y 确认 · Esc 取消",
     "stop_prompt": "确定停止此会话及其运行中的进程？",
     "stop_hint": "y 确认停止 · 其他任意键取消",
-    "delete_prompt": "删除此已停止会话及其日志？",
+    "delete_prompt": "删除此会话及其日志？",
     "delete_hint": "y 删除 · 其他按键取消",
     "language": "语言",
     "theme": "主题",

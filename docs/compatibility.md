@@ -72,10 +72,10 @@ Codex, Claude Code and OpenCode launch as ordinary terminal commands. No
 agent-specific integration is required. The default fullscreen view and monitor render bounded terminal screens.
 `attach --no-status` forwards native output and input.
 
-The current demo was recorded on macOS arm64 with three Codex CLI 0.165.0
-sessions and two OpenCode 1.18.30 sessions, alongside htop, shells and servers. Startup, typing in the prompt and detach/reconnect are checked without
-submitting a model request. Claude Code was not installed in this environment;
-its full workflow has not been tested here.
+The README images show Codex CLI 0.165.0, OpenCode 1.18.30 and htop on macOS,
+plus Claude Code 2.1.284 on Linux. The agent screenshots show startup and unsent
+drafts. Codex, OpenCode and htop use the split monitor; Claude Code uses the
+attached view with the session name and RSS row.
 
 A shared native terminal has one PTY size. Use monitor panes for differently
 sized windows; followers crop the owner’s screen without resizing the program.

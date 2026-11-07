@@ -9,7 +9,16 @@ Coding agents such as **Codex, Claude Code and OpenCode** work the same way:
 they run as their native CLI programs, with their own interface. No plugins,
 wrappers or tmux setup.
 
-![TaskDock demo](docs/assets/demo.gif)
+<table>
+  <tr>
+    <td width="50%"><strong>Codex</strong><br><a href="docs/assets/codex.png"><img width="100%" src="docs/assets/codex.png" alt="Codex in TaskDock's split monitor with eight running sessions"></a></td>
+    <td width="50%"><strong>Claude Code</strong><br><a href="docs/assets/claude.png"><img width="100%" src="docs/assets/claude.png" alt="Claude Code with TaskDock's session name and memory status row"></a></td>
+  </tr>
+  <tr>
+    <td><strong>OpenCode</strong><br><a href="docs/assets/opencode.png"><img width="100%" src="docs/assets/opencode.png" alt="OpenCode in TaskDock's split monitor"></a></td>
+    <td><strong>htop</strong><br><a href="docs/assets/htop.png"><img width="100%" src="docs/assets/htop.png" alt="htop monitoring real processes in TaskDock"></a></td>
+  </tr>
+</table>
 
 ## Install
 
@@ -49,8 +58,7 @@ tdock
 
 Select a session and press Enter to open it, or `v` to control it
 beside the session list. Sessions keep running when you leave TaskDock.
-The demo uses real Codex and OpenCode processes; see [compatibility](docs/compatibility.md)
-for tested versions and terminal limits.
+See [compatibility](docs/compatibility.md) for tested versions and terminal limits.
 
 Shells and other terminal programs work the same way:
 

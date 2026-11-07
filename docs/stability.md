@@ -52,12 +52,5 @@ screen layout and interactive workflows need separate testing.
 a second argument. The old-broker negative checks in
 `connection_modes_regression.py` require a pre-v0.3.0 binary without mode support.
 
-To regenerate the shell demo:
-
-```sh
-.venv/bin/pip install -r scripts/requirements-demo.txt
-.venv/bin/python scripts/record_demo.py --binary ./bin/tdock --font /path/to/mono.ttf
-```
-
 See [compatibility](compatibility.md) for tested platforms and
 [GitHub Actions](https://github.com/raywcm/taskdock/actions) for hosted runs.

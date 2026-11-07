@@ -9,16 +9,7 @@ Coding agents such as **Codex, Claude Code and OpenCode** work the same way:
 they run as their native CLI programs, with their own interface. No plugins,
 wrappers or tmux setup.
 
-<table>
-  <tr>
-    <td width="50%"><strong>Codex</strong><br><a href="docs/assets/codex.png"><img width="100%" src="docs/assets/codex.png" alt="Codex in TaskDock's split monitor with eight running sessions"></a></td>
-    <td width="50%"><strong>Claude Code</strong><br><a href="docs/assets/claude.png"><img width="100%" src="docs/assets/claude.png" alt="Claude Code with TaskDock's session name and memory status row"></a></td>
-  </tr>
-  <tr>
-    <td><strong>OpenCode</strong><br><a href="docs/assets/opencode.png"><img width="100%" src="docs/assets/opencode.png" alt="OpenCode in TaskDock's split monitor"></a></td>
-    <td><strong>htop</strong><br><a href="docs/assets/htop.png"><img width="100%" src="docs/assets/htop.png" alt="htop monitoring real processes in TaskDock"></a></td>
-  </tr>
-</table>
+![Codex in TaskDock's split monitor with eight running sessions](docs/assets/codex.png)
 
 ## Install
 
@@ -129,6 +120,20 @@ The status view reconstructs a bounded screen from retained output. Native
 Host-terminal scrollback belongs to that terminal. Monitoring
 shares input across terminals. The oldest controller owns the PTY size; other
 monitors fit that screen into their panes without resizing the application.
+
+## Screenshots
+
+### Claude Code
+
+![Claude Code with TaskDock's session name and memory status row](docs/assets/claude.png)
+
+### OpenCode
+
+![OpenCode in TaskDock's split monitor](docs/assets/opencode.png)
+
+### htop
+
+![htop monitoring real processes in TaskDock](docs/assets/htop.png)
 
 - [Usage](docs/usage.md) · [Compatibility](docs/compatibility.md)
 - [Build and packaging](docs/installation.md) · [Testing](docs/stability.md)

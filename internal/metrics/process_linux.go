@@ -61,3 +61,14 @@ func parseStat(pid int, line string) (process, bool) {
 	// Linux amd64/arm64 expose /proc CPU counters in USER_HZ=100 units.
 	return process{pid: pid, parent: parent, identity: fields[19], cpu: (user + system) / 100, memory: uint64(rss) * uint64(os.Getpagesize())}, true
 }
+
+func processAt(ctx context.Context, pid int) (process, bool) {
+	if ctx.Err() != nil {
+		return process{}, false
+	}
+	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
+	if err != nil {
+		return process{}, false
+	}
+	return parseStat(pid, string(data))
+}

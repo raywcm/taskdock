@@ -232,7 +232,7 @@ def test_attach(h):
     initial = drain(fd)
     label = ('TaskDock · attach ['+task[:8]+'] · Shared control').encode()
     assert b'\x1b[22;2t\x1b]2;'+label+b'\x07' in initial, initial
-    assert b'\r\n'+label in initial, initial
+    assert b'attach [' in initial and b'RSS' in initial, initial
     os.write(fd, b'first\n')
     assert b'ECHO:first' in drain(fd)
     pid2, fd2 = h.spawn_tty('attach', task)
@@ -254,7 +254,7 @@ def test_attach(h):
     pid, fd = h.spawn_tty('attach', task)
     renamed = drain(fd)
     label = ('TaskDock · 代码会话 ['+task[:8]+'] · Shared control').encode()
-    assert b'\x1b]2;'+label+b'\x07' in renamed and b'\r\n'+label in renamed, renamed
+    assert b'\x1b]2;'+label+b'\x07' in renamed and '代码会话 ['.encode() in renamed and b'RSS' in renamed, renamed
     os.write(fd, '中文\n'.encode())
     assert 'ECHO:中文'.encode() in drain(fd)
     # Killing the terminal frontend simulates a lost local/SSH connection.
@@ -300,14 +300,14 @@ def test_protocol_and_transparency(h):
 
 
 def test_resize_interrupt_and_noescape(h):
-    script = 'import os,signal,struct,fcntl,termios,time\ndef show(*a):\n r,c,_,_=struct.unpack("HHHH",fcntl.ioctl(0,termios.TIOCGWINSZ,b"\\0"*8));print("SIZE:%d:%d"%(r,c),flush=True)\nsignal.signal(signal.SIGWINCH,show);print("READY",flush=True)\nwhile True:time.sleep(1)'
+    script = 'import os,signal,struct,fcntl,termios,time\ndef show(*a):\n r,c,_,_=struct.unpack("HHHH",fcntl.ioctl(0,termios.TIOCGWINSZ,b"\\0"*8));os.write(1,("SIZE:%d:%d\\n"%(r,c)).encode())\nsignal.signal(signal.SIGWINCH,show);print("READY",flush=True)\nwhile True:time.sleep(1)'
     task = h.create('resize', sys.executable, '-c', script)
     until(lambda: b'READY' in h.cli('logs', task).stdout)
     pid, fd = h.spawn_tty('attach', task)
     wait_output(fd, b'resize [')
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', 37, 103, 0, 0))
     os.kill(pid, signal.SIGWINCH)
-    wait_output(fd, b'SIZE:37:103')
+    wait_output(fd, b'SIZE:36:103')
     os.write(fd, b'\x1dd');drain(fd);assert h.join(pid) == 0
     h.cli('stop', task)
     task = h.create('interrupt', '/bin/sh', '-c', 'exec sleep 30')

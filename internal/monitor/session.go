@@ -9,18 +9,16 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"sync"
 	"time"
-	"unicode"
 
-	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 	"github.com/raywcm/taskdock/internal/ipc"
 	"github.com/raywcm/taskdock/internal/protocol"
 	"github.com/raywcm/taskdock/internal/store"
 	"github.com/raywcm/taskdock/internal/task"
 	"github.com/raywcm/taskdock/internal/terminal"
+	"github.com/raywcm/taskdock/internal/vtscreen"
 	"golang.org/x/sys/unix"
 )
 
@@ -119,70 +117,15 @@ func dimensions(size task.Size) (int, int) {
 	return min(512, int(size.Cols)), min(256, int(size.Rows))
 }
 func newScreen(width, height int) *vt.Emulator {
-	e := vt.NewEmulator(width, height)
-	// Retained output may describe a larger terminal. x/vt v0.1.0 accepts
-	// out-of-screen margins, then panics on insert/delete/reverse-index. Ignore
-	// those invalid regions before the dependency can store them. Native attach
-	// remains byte transparent; this only applies to the offscreen preview.
-	e.RegisterCsiHandler('r', func(params ansi.Params) bool {
-		top, _, _ := params.Param(0, 1)
-		bottom, _, _ := params.Param(1, e.Height())
-		return top > e.Height() || bottom > e.Height()
-	})
-	e.RegisterCsiHandler('s', func(params ansi.Params) bool {
-		left, _, _ := params.Param(0, 1)
-		right, _, _ := params.Param(1, e.Width())
-		return left > e.Width() || right > e.Width()
-	})
-	e.SetScrollbackSize(0)
-	// VT device queries can write synchronously to the input pipe. Closing it
-	// discards those replies without a reader goroutine or any application input.
+	e := vtscreen.New(width, height)
+	// Previews discard device replies and never replay them into the application.
 	if closer, ok := e.InputPipe().(io.Closer); ok {
 		_ = closer.Close()
 	}
 	return e
 }
 func screenFrame(e *vt.Emulator) Frame {
-	rows := make([]string, e.Height())
-	for y := 0; y < e.Height(); y++ {
-		var line strings.Builder
-		style := ""
-		for x := 0; x < e.Width(); x++ {
-			cell := e.CellAt(x, y)
-			if cell == nil {
-				if style != "" {
-					line.WriteString("\x1b[0m")
-					style = ""
-				}
-				line.WriteByte(' ')
-				continue
-			}
-			if cell.Width == 0 {
-				continue
-			}
-			next := cell.Style.String()
-			if next != style {
-				line.WriteString("\x1b[0m")
-				line.WriteString(next)
-				style = next
-			}
-			// Only generated SGR plus printable cell content leave this renderer.
-			// OSC title/clipboard/hyperlinks, DCS and terminal queries stay in the emulator.
-			content := strings.Map(func(r rune) rune {
-				if unicode.IsControl(r) {
-					return -1
-				}
-				return r
-			}, cell.Content)
-			if content == "" {
-				content = " "
-			}
-			line.WriteString(content)
-		}
-		line.WriteString("\x1b[0m")
-		rows[y] = line.String()
-	}
-	return Frame{Rows: rows, Width: e.Width(), Height: e.Height(), CursorX: e.CursorPosition().X, CursorY: e.CursorPosition().Y, CursorHidden: e.CursorHidden(), Alternate: e.IsAltScreen(), Ready: true}
+	return Frame{Rows: vtscreen.Rows(e), Width: e.Width(), Height: e.Height(), CursorX: e.CursorPosition().X, CursorY: e.CursorPosition().Y, CursorHidden: e.CursorHidden(), Alternate: e.IsAltScreen(), Ready: true}
 }
 func (s *Session) publish(e *vt.Emulator, err error, ended bool) {
 	frame := screenFrame(e)

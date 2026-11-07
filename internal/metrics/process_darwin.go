@@ -66,3 +66,16 @@ func cpuTime(value string) (float64, error) {
 	}
 	return days*86400 + total, nil
 }
+
+func processAt(ctx context.Context, pid int) (process, bool) {
+	ctx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "/bin/ps", "-p", strconv.Itoa(pid), "-o", "pid=,ppid=,time=,rss=,lstart=")
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	data, err := cmd.Output()
+	if err != nil {
+		return process{}, false
+	}
+	p, ok := parseProcesses(data)[pid]
+	return p, ok
+}

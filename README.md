@@ -47,7 +47,7 @@ tdock new -ds opencode -- opencode
 tdock
 ```
 
-Select a session and press Enter for its native interface, or `v` to control it
+Select a session and press Enter to open it, or `v` to control it
 beside the session list. Sessions keep running when you leave TaskDock.
 The demo uses real Codex and OpenCode processes; see [compatibility](docs/compatibility.md)
 for tested versions and terminal limits.
@@ -75,6 +75,11 @@ account after a dropped connection. Tasks do not survive a host reboot.
 | c | Choose takeover, read-only or shared control |
 | F5, F1/? | Refresh or show help |
 | q / Ctrl+C | Exit the manager without stopping tasks |
+
+Fullscreen sessions have a bottom row with the session name and process-tree
+memory use. Use `tdock --no-status` for native forwarding and terminal scrollback.
+Starting a nested manager or session inside TaskDock is blocked; `ls`, `logs` and
+other management commands remain available.
 
 Inside a task, **F12** or **Ctrl+B, d** returns to the list.
 For compatibility, **Ctrl+B, Ctrl+D** (hold Ctrl while pressing B then D) and
@@ -111,8 +116,9 @@ subset and migration notes.
 Stopped records and logs expire after **one hour** by default. Each task retains
 two output files of about 8 MiB. All connections use the same Unix account.
 
-Reattach restores known terminal modes and requests an application redraw; it
-cannot restore a full screen snapshot or host-terminal scrollback. Monitoring
+The status view reconstructs a bounded screen from retained output. Native
+`--no-status` reattach restores terminal modes and requests an application redraw.
+Host-terminal scrollback belongs to that terminal. Monitoring
 shares input across terminals. The oldest controller owns the PTY size; other
 monitors fit that screen into their panes without resizing the application.
 

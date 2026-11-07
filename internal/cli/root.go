@@ -14,6 +14,7 @@ import (
 	historycleanup "github.com/raywcm/taskdock/internal/history"
 	"github.com/raywcm/taskdock/internal/i18n"
 	"github.com/raywcm/taskdock/internal/ipc"
+	"github.com/raywcm/taskdock/internal/metrics"
 	"github.com/raywcm/taskdock/internal/protocol"
 	"github.com/raywcm/taskdock/internal/service"
 	"github.com/raywcm/taskdock/internal/task"
@@ -23,7 +24,7 @@ import (
 	"golang.org/x/term"
 )
 
-var Version = "0.7.4-dev"
+var Version = "0.8.0-dev"
 
 type ExitError struct{ Code int }
 
@@ -31,6 +32,7 @@ func (e *ExitError) Error() string { return fmt.Sprintf("task exited with code %
 
 func NewRoot() *cobra.Command {
 	var stateDir string
+	var noStatus bool
 	openStore := func() (*service.Manager, error) {
 		dir, err := config.StateDir(stateDir)
 		if err != nil {
@@ -90,7 +92,7 @@ func NewRoot() *cobra.Command {
 						notice = errors.New("task has not started")
 						continue
 					}
-					_, err = terminal.AttachWithOptions(cmd.Context(), manager.Store.Root(), r, input, output, terminal.AttachOptions{Mode: action.Mode})
+					_, err = terminal.AttachWithOptions(cmd.Context(), manager.Store.Root(), r, input, output, terminal.AttachOptions{Mode: action.Mode, NoStatus: noStatus})
 					if err != nil {
 						notice = fmt.Errorf("attach: %w", err)
 						var remote *ipc.RemoteError
@@ -124,7 +126,33 @@ func NewRoot() *cobra.Command {
 	root.SetOut(os.Stdout)
 	root.SetErr(os.Stderr)
 	root.SetVersionTemplate("TaskDock v{{.Version}}\n")
+	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		switch cmd.Name() {
+		case "tdock", "new-session", "attach-session":
+		default:
+			return nil
+		}
+		id := task.ID(os.Getenv("TDOCK_SESSION"))
+		if id.Validate() != nil {
+			// Old sessions lack the marker. Check the current process ancestry
+			// against this catalog without connecting to or resizing any task.
+			manager, err := openStore()
+			if err != nil {
+				return err
+			}
+			records, err := manager.Store.List(cmd.Context())
+			if err != nil {
+				return err
+			}
+			id = metrics.SessionForProcess(cmd.Context(), records, os.Getpid())
+		}
+		if id != "" {
+			return errors.New("already inside a TaskDock session; press F12 or Ctrl+B, d to return to the list")
+		}
+		return nil
+	}
 	root.CompletionOptions.DisableDefaultCmd = true
+	root.PersistentFlags().BoolVar(&noStatus, "no-status", false, "use native terminal forwarding without a status row")
 	root.PersistentFlags().StringVar(&stateDir, "state-dir", "", "absolute state directory (or TDOCK_STATE_DIR)")
 	var listJSON, history bool
 	list := &cobra.Command{Use: "list-sessions", Aliases: []string{"ls"}, Short: "List tasks and live broker health", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
@@ -218,7 +246,7 @@ func NewRoot() *cobra.Command {
 		if r.Runtime == nil {
 			return errors.New("broker did not write runtime state")
 		}
-		result, err := attachCreated(cmd.Context(), m, r, input, output)
+		result, err := attachCreated(cmd.Context(), m, r, input, output, noStatus)
 		if err == nil && result.ExitCode != 0 {
 			return &ExitError{result.ExitCode}
 		}
@@ -264,7 +292,7 @@ func NewRoot() *cobra.Command {
 		} else if shared {
 			mode = protocol.AttachShared
 		}
-		result, err := terminal.AttachWithOptions(cmd.Context(), m.Store.Root(), r, input, output, terminal.AttachOptions{NoEscape: noEscape, Mode: mode})
+		result, err := terminal.AttachWithOptions(cmd.Context(), m.Store.Root(), r, input, output, terminal.AttachOptions{NoEscape: noEscape, Mode: mode, NoStatus: noStatus})
 		if err == nil && result.ExitCode != 0 {
 			return &ExitError{result.ExitCode}
 		}
@@ -481,7 +509,7 @@ func workingDir() string {
 	return dir
 }
 
-func attachCreated(ctx context.Context, m *service.Manager, r task.Record, input, output *os.File) (terminal.AttachResult, error) {
+func attachCreated(ctx context.Context, m *service.Manager, r task.Record, input, output *os.File, noStatus bool) (terminal.AttachResult, error) {
 	showFinished := func(r task.Record) (terminal.AttachResult, error) {
 		data, err := m.Logs(ctx, string(r.Spec.ID), true, 0)
 		if err != nil {
@@ -502,7 +530,7 @@ func attachCreated(ctx context.Context, m *service.Manager, r task.Record, input
 	if r.Runtime != nil && (r.Runtime.State == task.Exited || r.Runtime.State == task.Failed) {
 		return showFinished(r)
 	}
-	result, err := terminal.Attach(ctx, m.Store.Root(), r, input, output, false)
+	result, err := terminal.AttachWithOptions(ctx, m.Store.Root(), r, input, output, terminal.AttachOptions{NoStatus: noStatus})
 	if errors.Is(err, terminal.ErrConnect) {
 		latest, loadErr := m.Store.Load(ctx, r.Spec.ID)
 		if loadErr == nil && latest.Runtime != nil && (latest.Runtime.State == task.Exited || latest.Runtime.State == task.Failed) {

@@ -1,6 +1,6 @@
 # Compatibility
 
-Updated: 2026-10-28
+Updated: 2026-11-07
 
 ## Platforms
 
@@ -12,7 +12,7 @@ Updated: 2026-10-28
 | macOS amd64 | Cross-built | Native Intel Mac testing is pending. |
 | Debian / RPM-based distributions | Package contents checked | Native package-manager install, upgrade and removal tests are pending. |
 
-Builds disable CGO. The minimum Go version is 1.26; local testing used Go 1.27.3.
+Builds disable CGO. The minimum Go version is 1.26; local testing used Go 1.26.0.
 Go is not required at runtime.
 
 ## Applications and terminals
@@ -37,16 +37,17 @@ startup check, so its visible startup still needs testing.
 - **Host shutdown ends tasks.** Brokers survive terminal closure and SSH loss
   when the host permits background user processes. Reboot, OOM and login-session
   cleanup can terminate them.
-- **Reattach relies on application redraw.** tdock restores known terminal modes
-  and briefly changes the PTY size to request a redraw. It does not restore a
-  full screen snapshot or host-terminal scrollback. Unsupported extensions or an
-  application that does not redraw can leave an incomplete screen.
+- **The status view uses a bounded terminal renderer.** It reserves a bottom row
+  and uses an alternate buffer. Unsupported terminal extensions and native
+  host scrollback require `tdock --no-status`. Native reattach restores terminal
+  modes and requests a redraw. Retained logs can begin partway through output,
+  so reconstructed screens may be incomplete.
 - **Monitoring changes the PTY size.** The preview uses its pane size and retains
-  that size when leaving. Full attach applies the full terminal size. Occupied
+  that size when leaving. Full attach uses the terminal size minus its status row. Occupied
   or unreachable tasks display “Unable to monitor.” The preview is reconstructed
   from retained logs and accepts keyboard input immediately. ↑/↓ selects the monitored task and Esc/F12 returns to the list;
   these keys are reserved in the monitor. Native
-  mouse behavior and unsupported terminal extensions require fullscreen attach.
+  terminal extensions require `attach --no-status`.
 - **Connection roles are scoped to one Unix account.** Read-only limits that
   connection; the same account can open another management client. Shared inputs
   can interfere. The oldest connected controller determines the PTY size.
@@ -68,8 +69,8 @@ configuration and recovery procedures.
 ## Coding agents
 
 Codex, Claude Code and OpenCode launch as ordinary terminal commands. No
-agent-specific integration is required. Native attach forwards their output and
-input; monitor control uses a separate screen renderer.
+agent-specific integration is required. The default fullscreen view and monitor render bounded terminal screens.
+`attach --no-status` forwards native output and input.
 
 The current demo was recorded on macOS arm64 with three Codex CLI 0.165.0
 sessions and two OpenCode 1.18.30 sessions, alongside htop, shells and servers. Startup, typing in the prompt and detach/reconnect are checked without

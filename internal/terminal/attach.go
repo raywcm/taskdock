@@ -15,6 +15,7 @@ import (
 	"github.com/raywcm/taskdock/internal/config"
 	"github.com/raywcm/taskdock/internal/i18n"
 	"github.com/raywcm/taskdock/internal/ipc"
+	"github.com/raywcm/taskdock/internal/metrics"
 	"github.com/raywcm/taskdock/internal/protocol"
 	"github.com/raywcm/taskdock/internal/store"
 	"github.com/raywcm/taskdock/internal/task"
@@ -31,6 +32,7 @@ var ErrConnect = errors.New("could not attach to broker")
 
 type AttachOptions struct {
 	NoEscape bool
+	NoStatus bool
 	Mode     string
 }
 
@@ -61,7 +63,10 @@ func AttachWithOptions(ctx context.Context, state string, record task.Record, in
 		return AttachResult{}, err
 	}
 	defer tty.Close()
-	size := CurrentSize(tty)
+	physicalSize := CurrentSize(tty)
+	// Bound parser/screen memory even if a terminal reports extreme dimensions.
+	status := !options.NoStatus && physicalSize.Cols <= 512 && physicalSize.Rows <= 257
+	size := sessionSize(physicalSize, status)
 	repository, err := store.Open(state)
 	if err != nil {
 		return AttachResult{}, err
@@ -74,7 +79,22 @@ func AttachWithOptions(ctx context.Context, state string, record task.Record, in
 	_ = repository.SaveTerminalModes(restore.modes)
 	// Scan before taking the output subscription, so historical log size cannot
 	// make a fast live producer overflow the attach queue while we inspect it.
-	session, err := ipc.ConnectAttachment(ctx, state, r, &size, options.Mode)
+	var session *ipc.Session
+	var display *statusScreen
+	var readOnly bool
+	if status {
+		display = newStatusScreen(physicalSize, record.Spec, func(frame protocol.Frame) error {
+			if readOnly {
+				return nil
+			}
+			return session.Send(frame)
+		})
+		defer display.close()
+		if err := display.replay(ctx, repository.Root(), record.Spec.ID); err != nil {
+			return AttachResult{}, err
+		}
+	}
+	session, err = ipc.ConnectAttachment(ctx, state, r, &size, options.Mode)
 	if err != nil {
 		return AttachResult{}, fmt.Errorf("%w: %w", ErrConnect, err)
 	}
@@ -85,13 +105,22 @@ func AttachWithOptions(ctx context.Context, state string, record task.Record, in
 	}
 	locale := i18n.New(preferences.Language)
 	identity := newIdentity(record.Spec, locale, size, options.NoEscape)
-	readOnly := session.Welcome.AttachMode == protocol.AttachReadOnly
+	readOnly = session.Welcome.AttachMode == protocol.AttachReadOnly
 	var sizeOwner atomic.Bool
 	// Older brokers have no size-owner field and retain the exclusive semantics.
 	sizeOwner.Store(session.Welcome.AttachMode == "" || session.Welcome.SizeOwner)
+	if display != nil {
+		if session.Welcome.Size != nil {
+			display.source(*session.Welcome.Size)
+		}
+		display.start()
+	}
 	if session.Welcome.AttachMode != "" && session.Welcome.AttachMode != protocol.AttachExclusive {
 		label := locale.Text("mode_" + session.Welcome.AttachMode)
 		identity = identity.withMode(label, size)
+		if display != nil {
+			display.mode = label
+		}
 	}
 	var result AttachResult
 	titleActive := false
@@ -109,7 +138,7 @@ func AttachWithOptions(ctx context.Context, state string, record task.Record, in
 			result AttachResult
 			err    error
 		}
-		events := make(chan event, 2)
+		events := make(chan event, 8)
 		var wg sync.WaitGroup
 		frames := make(chan Incoming, 64)
 		wg.Go(func() {
@@ -139,24 +168,37 @@ func AttachWithOptions(ctx context.Context, state string, record task.Record, in
 		}
 		titleActive = true
 		var pending []Incoming
-		if session.Welcome.Replay != "initial" {
-			if err := writeTTY(attachCtx, fd, []byte(restore.prefix())); err != nil {
+		if display != nil {
+			if err := writeTTY(attachCtx, fd, []byte("\x1b[?1049h\x1b[0m\x1b[r\x1b[?6l\x1b[4l\x1b[H\x1b[2J")); err != nil {
+				return err
+			}
+			// Restore only keyboard/mouse modes on the physical terminal.
+			// The viewport already contains application screen and text styles.
+
+			// Feed modes through the emulator so geometry modes remain private.
+			if err := display.feed([]byte(restore.modePrefix())); err != nil {
+				return err
+			}
+			if err := display.draw(attachCtx, fd); err != nil {
+				return err
+			}
+		} else {
+			if session.Welcome.Replay != "initial" {
+				if err := writeTTY(attachCtx, fd, []byte(restore.prefix())); err != nil {
+					return err
+				}
+			}
+			if err := writeTTY(attachCtx, fd, []byte(identity.banner())); err != nil {
+				return err
+			}
+			if err := writeTTY(attachCtx, fd, []byte(restore.rendition())); err != nil {
 				return err
 			}
 		}
-		if err := writeTTY(attachCtx, fd, []byte(identity.banner())); err != nil {
-			return err
-		}
-		if err := writeTTY(attachCtx, fd, []byte(restore.rendition())); err != nil {
-			return err
-		}
-		if session.Welcome.Replay != "initial" {
-			if restore.fullscreen() && sizeOwner.Load() {
-				var err error
-				pending, err = Repaint(attachCtx, session.Send, frames, size, 2*time.Second)
-				if err != nil {
-					return err
-				}
+		if session.Welcome.Replay != "initial" && restore.fullscreen() && sizeOwner.Load() {
+			pending, err = Repaint(attachCtx, session.Send, frames, size, 2*time.Second)
+			if err != nil {
+				return err
 			}
 		}
 
@@ -221,11 +263,23 @@ func AttachWithOptions(ctx context.Context, state string, record task.Record, in
 				frame := next.Frame
 				switch frame.Kind {
 				case protocol.Output:
-					if err := writeTTY(attachCtx, fd, frame.Payload); err != nil {
+					var err error
+					if display != nil {
+						err = display.feed(frame.Payload)
+					} else {
+						err = writeTTY(attachCtx, fd, frame.Payload)
+					}
+					if err != nil {
 						events <- event{err: err}
 						return
 					}
 				case protocol.Exit:
+					if display != nil {
+						if err := display.draw(attachCtx, fd); err != nil {
+							events <- event{err: err}
+							return
+						}
+					}
 					var exit protocol.ExitMessage
 					if err := ipc.Decode(frame.Payload, &exit); err != nil {
 						events <- event{err: err}
@@ -250,15 +304,21 @@ func AttachWithOptions(ctx context.Context, state string, record task.Record, in
 					switch notice.Type {
 					case "role":
 						wasOwner := sizeOwner.Swap(notice.SizeOwner)
+						if display != nil && !notice.SizeOwner && notice.Size != nil {
+							display.source(*notice.Size)
+						}
 						if notice.SizeOwner && !wasOwner && !readOnly {
-							if err := session.Send(ipc.JSON(protocol.Resize, CurrentSize(tty))); err != nil {
+							if display != nil {
+								display.source(sessionSize(CurrentSize(tty), status))
+							}
+							if err := session.Send(ipc.JSON(protocol.Resize, sessionSize(CurrentSize(tty), status))); err != nil {
 								events <- event{err: err}
 								return
 							}
 						}
 					case "refresh":
 						if !readOnly && sizeOwner.Load() && restore.inspect(repository) == nil && restore.fullscreen() {
-							redraw, err := Repaint(attachCtx, session.Send, frames, CurrentSize(tty), 2*time.Second)
+							redraw, err := Repaint(attachCtx, session.Send, frames, sessionSize(CurrentSize(tty), status), 2*time.Second)
 							if err != nil {
 								events <- event{err: err}
 								return
@@ -279,19 +339,63 @@ func AttachWithOptions(ctx context.Context, state string, record task.Record, in
 		wg.Go(func() {
 			// Also cover a resize during log inspection or the repaint handshake.
 			if sizeOwner.Load() && !readOnly {
-				_ = session.Send(ipc.JSON(protocol.Resize, CurrentSize(tty)))
+				_ = session.Send(ipc.JSON(protocol.Resize, sessionSize(CurrentSize(tty), status)))
 			}
 			for {
 				select {
 				case <-attachCtx.Done():
 					return
 				case <-resize:
+					if display != nil {
+						display.resize(CurrentSize(tty), sizeOwner.Load())
+					}
 					if sizeOwner.Load() && !readOnly {
-						_ = session.Send(ipc.JSON(protocol.Resize, CurrentSize(tty)))
+						_ = session.Send(ipc.JSON(protocol.Resize, sessionSize(CurrentSize(tty), status)))
 					}
 				}
 			}
 		})
+		if display != nil {
+			wg.Go(func() {
+				ticker := time.NewTicker(50 * time.Millisecond)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-attachCtx.Done():
+						return
+					case <-ticker.C:
+						if err := display.draw(attachCtx, fd); err != nil {
+							events <- event{err: err}
+							return
+						}
+					}
+				}
+			})
+			wg.Go(func() {
+				sampler := metrics.New()
+				ticker := time.NewTicker(2 * time.Second)
+				defer ticker.Stop()
+				for {
+					latest, err := repository.Load(attachCtx, record.Spec.ID)
+					if err == nil {
+						latest.Health = "online" // The attachment authenticated this broker instance.
+						sample := sampler.Sample(attachCtx, []task.Record{latest})
+						resources, ok := sample[latest.Spec.ID]
+						var value *task.Resources
+						if ok {
+							value = &resources
+						}
+						display.update(latest.Spec.Name, value)
+					}
+					select {
+					case <-attachCtx.Done():
+						return
+					case <-ticker.C:
+					}
+				}
+			})
+		}
+
 		var failure error
 		select {
 		case e := <-events:
@@ -313,7 +417,7 @@ func AttachWithOptions(ctx context.Context, state string, record task.Record, in
 }
 
 func ResetModes(output io.Writer) error {
-	_, err := io.WriteString(output, "\x1b[0m\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l\x1b[?1004l\x1b[?2004l\x1b[?1l\x1b>\x1b[4l\x1b[<u\x1b[>4;0m\x1b[?1049l\x1b[0 q\x1b[?25h")
+	_, err := io.WriteString(output, "\x1b[0m\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l\x1b[?1004l\x1b[?2004l\x1b[?1l\x1b>\x1b[4l\x1b[?7h\x1b[<u\x1b[>4;0m\x1b[?1049l\x1b[0 q\x1b[?25h")
 	return err
 }
 

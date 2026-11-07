@@ -24,7 +24,7 @@ flowchart LR
 | broker, daemon | Subscriptions, control ownership, supervision and logs |
 | ptyprocess | PTY, resize, wait and process-session signals |
 | service | Shared CLI/TUI operations and startup |
-| terminal | Raw mode, byte forwarding, detach keys and cleanup |
+| terminal, vtscreen | Raw input, native forwarding, bounded screens, status row and cleanup |
 | tui, monitor | Task list, dialogs and preview terminal |
 | config, i18n, metrics, history | Settings, languages, resource sampling and expiry |
 
@@ -49,7 +49,11 @@ The TUI releases terminal ownership before attach enters raw mode. A separately
 opened `/dev/tty` uses cancellable native poll; readers stop before termios is
 restored. Signals are bridged into graceful TUI exits.
 
-Application output bypasses the TUI renderer. Input recognizes F12, Ctrl+B then
+Fullscreen attach uses a bounded VT and row-diff renderer with a fixed status
+row. It paints only dirty screens, at most 20 times per second. A separate
+read-only process-tree sampler updates RSS every two seconds. The oldest
+controller reserves one row in its PTY size. `--no-status` forwards application
+output directly to the host terminal. Input recognizes F12, Ctrl+B then
 d or Ctrl+D, and the legacy Ctrl+] then d. Bracketed paste bypasses shortcuts.
 A bounded input buffer handles split CSI sequences; incomplete escapes flush
 after 50 ms. `--no-escape` bypasses all input transformations.
@@ -67,8 +71,11 @@ failure does not stop live output.
 
 At attach boundaries, known modes and active text rendition are read from bounded
 logs and the instance's `terminal.json`. Generated SGR restores colors and attributes
-before live output resumes. Full-screen programs receive a temporary one-row resize and a
-redraw wait of up to two seconds. No full screen snapshot or scrollback is kept.
+before native live output resumes. Full-screen programs receive a temporary
+one-row resize and a redraw wait of up to two seconds. The status view seeds
+its offscreen buffer from the same bounded logs. Historical queries and terminal
+side effects stay offscreen. Live cursor reports use application coordinates;
+palette queries reach the host terminal.
 
 The monitor uses a separate VT fed from retained logs. It joins a shared
 connection and forwards ordinary keyboard input. Only the first controller
@@ -94,3 +101,7 @@ See [protocol](protocol.md), [testing](stability.md) and
 Session order is a separate private `order.json`, updated under the catalog
 lock. Moves re-read the current order rather than overwriting another frontend's
 stale list. Runtime metadata and existing brokers are unchanged.
+
+Task children inherit `TDOCK_SESSION`. The CLI blocks nested manager, new and
+attach commands. Older sessions are detected through process ancestry and the
+current catalog. Broker/history workers and management commands stay available.

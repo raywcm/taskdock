@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -40,7 +41,15 @@ func (Factory) Start(opts broker.SpawnOptions) (broker.Process, error) {
 	}
 	// Deliberately not CommandContext: the command lifetime must not follow a client.
 	cmd := exec.Command(opts.Spec.Command[0], opts.Spec.Command[1:]...)
-	cmd.Dir, cmd.Env = opts.Spec.Dir, opts.Env
+	cmd.Dir = opts.Spec.Dir
+	// This marker follows shells and subprocesses, including across state roots.
+	// Replace any inherited value instead of creating duplicate environment keys.
+	for _, entry := range opts.Env {
+		if !strings.HasPrefix(entry, "TDOCK_SESSION=") {
+			cmd.Env = append(cmd.Env, entry)
+		}
+	}
+	cmd.Env = append(cmd.Env, "TDOCK_SESSION="+string(opts.Spec.ID))
 	// StartWithSize creates a new session and controlling terminal for the child.
 	master, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: opts.Size.Rows, Cols: opts.Size.Cols})
 	if err != nil {

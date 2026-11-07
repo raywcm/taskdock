@@ -17,6 +17,22 @@ as argv. Use `--` before a command to keep even a single argument literal.
 Place tdock flags before the command; remaining flags belong to the application.
 Tasks accept names, full IDs or unique ID prefixes of at least four characters.
 
+## Attached status row
+
+Fullscreen sessions show their name, short ID and process-tree RSS in a fixed
+bottom row. Memory and renames refresh every two seconds. The size owner gives
+the application one fewer row. Followers crop the owner's screen and keep their
+own status row.
+
+The status view renders a bounded VT screen in the alternate buffer. Use
+`tdock --no-status` for native forwarding and host-terminal scrollback, or
+`tdock attach --no-status work` for one connection. Views above 512 columns or
+257 rows start in native mode.
+
+Starting another manager, `new` or `attach` from inside a TaskDock session is
+blocked. Use F12 or Ctrl+B, d to return to the list. Management commands such as
+`ls`, `logs`, `rename` and `stop` remain available inside a session.
+
 ## tmux session commands
 
 | Command | Supported flags / aliases |
@@ -124,7 +140,7 @@ The oldest controller sets the PTY size; other monitors crop the same screen to
 their panes. When that controller leaves, the next one applies its own size.
 Unavailable tasks display “Unable to monitor”; F5 retries and F12/Esc returns to
 the list. Embedded
-control supports keyboard input; use fullscreen attach for native terminal mouse
+control supports keyboard input; use `attach --no-status` for native terminal
 behavior and terminal extensions.
 
 Press **Ctrl+F** in the list or monitor to search running and stopped sessions.

@@ -149,7 +149,7 @@ def reenter(h,new_binary,name,argv,expected):
 
 def plain_shell(h):
     terminal=Terminal();terminal.feed(b'SHELL-SCROLLBACK-KEEP\r\n')
-    pid,fd=h.spawn_tty('new','--name','plain','--','/bin/sh','-c','printf PLAIN-PROMPT; read value')
+    pid,fd=h.spawn_tty('--no-status','new','--name','plain','--','/bin/sh','-c','printf PLAIN-PROMPT; read value')
     terminal.feed(drain(fd,.3))
     assert not terminal.alternate,'plain shell was unnecessarily forced into alternate screen'
     assert any('SHELL-SCROLLBACK-KEEP' in line for line in terminal.display)

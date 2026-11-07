@@ -1,5 +1,5 @@
-// Package terminal owns the local terminal only while attached. No Bubble Tea
-// model, ANSI parser, screen buffer, or renderer belongs in this package.
+// Package terminal owns raw terminal input and attached-session display.
+// Native forwarding is available alongside the bounded status-bar viewport.
 package terminal
 
 import (

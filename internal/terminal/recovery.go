@@ -193,10 +193,15 @@ func (r *recovery) rendition() string {
 // prefix synthesizes only whitelisted modes. No text, OSC, clipboard commands,
 // terminal queries or other historical control sequences are replayed.
 func (r *recovery) prefix() string {
-	var out strings.Builder
+	prefix := ""
 	if r.fullscreen() {
-		out.WriteString("\x1b[?1049h\x1b[0m\x1b[r\x1b[?6l\x1b[H\x1b[2J")
+		prefix = "\x1b[?1049h\x1b[0m\x1b[r\x1b[?6l\x1b[H\x1b[2J"
 	}
+	return prefix + r.modePrefix()
+}
+
+func (r *recovery) modePrefix() string {
+	var out strings.Builder
 	modes := make([]int, 0, len(r.modes.Private))
 	for mode := range r.modes.Private {
 		if mode != 47 && mode != 1047 && mode != 1049 {

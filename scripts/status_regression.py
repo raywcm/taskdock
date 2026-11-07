@@ -44,6 +44,7 @@ def check_status(h):
     wait_view(fd, terminal, lambda text: 'SIZE-23-80' in text and 'RSS' in text)
     assert 'status-work' in terminal.display[-1], terminal.display
     assert 'BOTTOM-CELL' in terminal.display[-2], terminal.display
+    assert b'SIZE-22-80' not in h.cli('logs', ref).stdout, 'status attach bounced the application dimensions'
     assert terminal.display[1][-1] == 'X', 'rightmost application cell was erased'
     assert terminal.current.buffer[0][0].fg == '1199dd', 'truecolor changed'
     assert 'MiB' in ''.join(terminal.display) or 'KiB' in ''.join(terminal.display)
@@ -90,11 +91,25 @@ def check_status(h):
 def check_nesting(h):
     binary = shlex.quote(str(h.binary))
     state = shlex.quote(str(h.state))
+    # Simulate an already-running old shell. Its broker has published runtime
+    # identity by this point, unlike a child racing its initial readiness write.
+    settled = r"""
+import json, os, pathlib, time
+path = pathlib.Path(__import__('sys').argv[1])/'tasks'/os.environ['TDOCK_SESSION']/'runtime.json'
+deadline = time.monotonic()+10
+while time.monotonic()<deadline:
+ try:
+  if json.loads(path.read_text()).get('state')=='running':break
+ except (OSError,ValueError):pass
+ time.sleep(.01)
+else:raise SystemExit('fixture broker did not become ready')
+"""
+    wait_old = shlex.quote(sys.executable)+' -c '+shlex.quote(settled)+' '+state
     cases = [
         ('manager', f'{binary} --state-dir {state}'),
         ('attach', f'{binary} --state-dir {state} attach missing'),
         ('new', f'{binary} --state-dir {state} new -ds forbidden -- /bin/sh'),
-        ('old-broker', f'unset TDOCK_SESSION; {binary} --state-dir {state}'),
+        ('old-broker', f'{wait_old}; unset TDOCK_SESSION; {binary} --state-dir {state}'),
         ('other-root', f'{binary} --state-dir {state}-other new -ds forbidden -- /bin/sh'),
     ]
     for name, command in cases:

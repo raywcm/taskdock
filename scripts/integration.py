@@ -229,7 +229,7 @@ def test_attach(h):
     task = h.create('attach', '/bin/sh', '-c', 'while IFS= read -r line; do [ "$line" = quit ] && exit 7; printf "ECHO:%s\\n" "$line"; done')
     pid, fd = h.spawn_tty('attach', task)
     initial_state = termios.tcgetattr(fd)
-    initial = drain(fd)
+    initial = wait_output(fd, b'RSS')
     label = ('TaskDock · attach ['+task[:8]+'] · Shared control').encode()
     assert b'\x1b[22;2t\x1b]2;'+label+b'\x07' in initial, initial
     assert b'attach [' in initial and b'RSS' in initial, initial
@@ -252,7 +252,7 @@ def test_attach(h):
     assert h.show(task)['health'] == 'online'
     h.cli('rename', task, '代码会话')
     pid, fd = h.spawn_tty('attach', task)
-    renamed = drain(fd)
+    renamed = wait_output(fd, b'RSS')
     label = ('TaskDock · 代码会话 ['+task[:8]+'] · Shared control').encode()
     assert b'\x1b]2;'+label+b'\x07' in renamed and '代码会话 ['.encode() in renamed and b'RSS' in renamed, renamed
     os.write(fd, '中文\n'.encode())

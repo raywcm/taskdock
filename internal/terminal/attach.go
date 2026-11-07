@@ -110,6 +110,13 @@ func AttachWithOptions(ctx context.Context, state string, record task.Record, in
 	// Older brokers have no size-owner field and retain the exclusive semantics.
 	sizeOwner.Store(session.Welcome.AttachMode == "" || session.Welcome.SizeOwner)
 	if display != nil {
+		if session.Welcome.Replay == "initial" {
+			// The broker will deliver captured startup bytes exactly once. Logs
+			// seeded before the handshake can already contain those same bytes.
+			if err := display.feed([]byte("\x1bc")); err != nil {
+				return AttachResult{}, err
+			}
+		}
 		if session.Welcome.Size != nil {
 			display.source(*session.Welcome.Size)
 		}
@@ -195,7 +202,7 @@ func AttachWithOptions(ctx context.Context, state string, record task.Record, in
 				return err
 			}
 		}
-		if session.Welcome.Replay != "initial" && restore.fullscreen() && sizeOwner.Load() {
+		if display == nil && session.Welcome.Replay != "initial" && restore.fullscreen() && sizeOwner.Load() {
 			pending, err = Repaint(attachCtx, session.Send, frames, size, 2*time.Second)
 			if err != nil {
 				return err
@@ -317,7 +324,7 @@ func AttachWithOptions(ctx context.Context, state string, record task.Record, in
 							}
 						}
 					case "refresh":
-						if !readOnly && sizeOwner.Load() && restore.inspect(repository) == nil && restore.fullscreen() {
+						if display == nil && !readOnly && sizeOwner.Load() && restore.inspect(repository) == nil && restore.fullscreen() {
 							redraw, err := Repaint(attachCtx, session.Send, frames, sessionSize(CurrentSize(tty), status), 2*time.Second)
 							if err != nil {
 								events <- event{err: err}

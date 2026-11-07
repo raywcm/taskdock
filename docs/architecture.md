@@ -73,7 +73,9 @@ At attach boundaries, known modes and active text rendition are read from bounde
 logs and the instance's `terminal.json`. Generated SGR restores colors and attributes
 before native live output resumes. Full-screen programs receive a temporary
 one-row resize and a redraw wait of up to two seconds. The status view seeds
-its offscreen buffer from the same bounded logs. Historical queries and terminal
+its offscreen buffer from the same bounded logs and reconnects without a
+temporary resize. Captured startup output supersedes the seeded buffer, so it
+is displayed once. Historical queries and terminal
 side effects stay offscreen. Live cursor reports use application coordinates;
 palette queries reach the host terminal.
 

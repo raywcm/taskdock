@@ -242,7 +242,7 @@ def test_attach(h):
     os.write(fd2, b'\x1b[24~'); drain(fd2)
     assert h.join(pid2) == 0
     os.write(fd, b'\x02d')
-    end = drain(fd)
+    end = wait_output(fd, b'\x1b[23;2t')
     assert b'\x1b[?1049l' in end and b'\x1b[?25h' in end
     assert end.rfind(b'\x1b[23;2t') > end.rfind(b'\x1b[?1049l'), end
     # Slave termios are visible from the master after attach restores them.

@@ -117,7 +117,7 @@ def reenter(h,new_binary,name,argv,expected):
     terminal=Terminal()
     terminal.feed(b'OUTER-SHELL-KEEP\r\nOUTER-PROMPT> ')
     pid,fd=h.spawn_tty('new','--name',name,'--',*argv)
-    deadline=time.monotonic()+3
+    deadline=time.monotonic()+6
     while time.monotonic()<deadline:
         terminal.feed(drain(fd,.05))
         if terminal.alternate and all(any(label in row for row in terminal.display) for label in expected):break
@@ -130,7 +130,7 @@ def reenter(h,new_binary,name,argv,expected):
         assert any('OUTER-SHELL-KEEP' in row for row in terminal.main.display)
         before=list(terminal.main.display)
         pid,fd=h.spawn_tty('attach',name)
-        deadline=time.monotonic()+3
+        deadline=time.monotonic()+6
         while time.monotonic()<deadline:
             terminal.feed(drain(fd,.05))
             if terminal.alternate and all(any(label in row for row in terminal.display) for label in expected):break

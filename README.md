@@ -3,8 +3,8 @@
 <table>
   <tr>
     <td width="50%" align="center">
-      <strong>Codex</strong><br>
-      <img src="docs/assets/codex.png" width="100%" alt="Codex in TaskDock's split monitor with eight running sessions">
+      <strong>TaskDock</strong><br>
+      <img src="docs/assets/sessions.png" width="100%" alt="TaskDock session list with CPU and memory usage">
     </td>
     <td width="50%" align="center">
       <strong>Claude Code</strong><br>

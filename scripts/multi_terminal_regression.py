@@ -64,7 +64,7 @@ def cooperation(h):
  paste=b'\x1b[200~\x1b[1;2A\x1b[201~'
  os.write(f2,paste);expected+=paste;until(lambda:received(h,'alpha')==expected)
  assert selected(t2,'alpha'),'Shift arrows moved the list selection'
- assert 'Shift+' in t1.display[0] and 'Esc/F12' in t1.display[0]
+ assert 'Shift+' in t1.display[0] and 'Ctrl+Q/F12' in t1.display[0]
  offset=len(h.cli('logs','alpha','--raw').stdout)
  for rows,cols in [(32,100),(28,110),(30,120)]:
   resize(p2,f2,t2,rows,cols)

@@ -15,14 +15,14 @@ func TestSessionIdentityShowsNameShortIDAndLocalizedHint(t *testing.T) {
 	if got.title != "TaskDock · 代码会话 [ff709424]" || strings.Contains(got.banner(), string(spec.ID)) {
 		t.Fatalf("incorrect identity: %+v", got)
 	}
-	if !strings.Contains(got.banner(), "代码会话 [ff709424]") || !strings.Contains(got.banner(), "Ctrl+B") || !strings.Contains(got.banner(), "断开") {
+	if !strings.Contains(got.banner(), "代码会话 [ff709424]") || !strings.Contains(got.banner(), "Ctrl+Q") || !strings.Contains(got.banner(), "断开") {
 		t.Fatal(got.banner())
 	}
 	if !strings.HasPrefix(got.start(), saveWindowTitle+"\x1b]2;") {
 		t.Fatal("title must be saved before setting it")
 	}
 	noEscape := newIdentity(spec, i18n.New("en"), task.Size{Cols: 100, Rows: 24}, true)
-	if strings.Contains(noEscape.banner(), "F12") || strings.Contains(noEscape.banner(), "Ctrl+B") || strings.Contains(noEscape.banner(), "Ctrl+]") || !strings.Contains(noEscape.banner(), "Close terminal") {
+	if strings.Contains(noEscape.banner(), "F12") || strings.Contains(noEscape.banner(), "Ctrl+Q") || strings.Contains(noEscape.banner(), "Ctrl+]") || !strings.Contains(noEscape.banner(), "Close terminal") {
 		t.Fatal("advertised unavailable detach shortcut", noEscape.banner())
 	}
 }

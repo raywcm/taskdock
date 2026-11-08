@@ -46,20 +46,7 @@ func (r *monitorInput) resetLocked() {
 		r.timer.Stop()
 		r.timer = nil
 	}
-	r.decoder = terminal.EscapeDecoder{PrefixCommand: func(raw []byte) bool {
-		command := monitorNavigation(raw)
-		switch string(raw) {
-		case "\x1b[A", "p":
-			command = "previous"
-		case "\x1b[B", "n":
-			command = "next"
-		}
-		if command == "" {
-			return false
-		}
-		r.commands = append(r.commands, command)
-		return true
-	}, Command: func(raw []byte, key uint16) bool {
+	r.decoder = terminal.EscapeDecoder{Command: func(raw []byte, key uint16) bool {
 		command := monitorNavigation(raw)
 		if key == 0x06 {
 			command = "search"

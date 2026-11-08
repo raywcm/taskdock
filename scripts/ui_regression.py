@@ -57,7 +57,7 @@ def main():
             os.write(fd,b'\x1b[Z') # Shift+Tab
             wait_view(fd,terminal,lambda text:'live-work' in text and 'completed-work' not in text)
             os.write(fd,b'\x1bOP') # F1
-            wait_view(fd,terminal,lambda text:'Keyboard shortcuts' in text and 'Ctrl+B' in text and 'F2' in text)
+            wait_view(fd,terminal,lambda text:'Keyboard shortcuts' in text and 'Ctrl+Q' in text and 'F2' in text)
             os.write(fd,b'\x1b')
             wait_view(fd,terminal,lambda text:'live-work' in text and 'Keyboard shortcuts' not in text)
             os.write(fd,b'\x1b[15~') # F5

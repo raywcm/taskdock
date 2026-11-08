@@ -30,7 +30,7 @@ The status view renders a bounded VT screen in the alternate buffer. Use
 257 rows start in native mode.
 
 Starting another manager, `new` or `attach` from inside a TaskDock session is
-blocked. Use F12 or Ctrl+B, d to return to the list. Management commands such as
+blocked. Use Ctrl+Q or F12 to return to the list. Management commands such as
 `ls`, `logs`, `rename` and `stop` remain available inside a session.
 
 ## tmux session commands
@@ -57,17 +57,14 @@ Existing scripts should replace `list` with `ls`, `status` with `show`, `rm` wit
 
 ## Detach keys
 
-- **F12**: detach; Mac keyboards may require Fn+F12.
-- **Ctrl+B, d**: release Ctrl before pressing d.
-
-Compatibility shortcuts are documented here rather than in the interface:
-**Ctrl+B, Ctrl+D** (keep Ctrl held while pressing B then D) and **Ctrl+], d**.
+- **Ctrl+Q** detaches. On Mac, use Control+Q.
+- **F12** also detaches. Mac keyboards may require Fn+F12.
 
 From the manager, detach returns to the list. A direct `tdock attach` returns to
-the shell. The task keeps running. Standalone Ctrl+D and Ctrl+C retain the
-application's behavior. Press a prefix twice to send it literally.
+the shell. The task keeps running. Ctrl+D and Ctrl+C retain the application's
+behavior. Ctrl+B and Ctrl+] pass directly to the application.
 
-`tdock attach --no-escape TASK` disables all detach shortcuts, including F12.
+`tdock attach --no-escape TASK` disables Ctrl+Q and F12 handling.
 Close the terminal or end the frontend to disconnect in that mode. Bracketed
 paste passes through without interpreting detach keys. Incomplete escape
 sequences wait up to 50 ms before being forwarded.
@@ -129,8 +126,8 @@ Unix UID. Older brokers retain ordinary exclusive attach.
 In the TUI, new sessions open selected in the monitor. In the task list, Enter
 opens a session fullscreen; `v` opens the monitor. Ordinary input, Enter, ←/→,
 Ctrl+C/D and pasted text in the monitor go to the application. Shift+↑/↓ sends
-ordinary application arrow keys. ↑/↓ switches
-sessions; Esc, F12 or Ctrl+B, d returns to the list. To enter a session, return
+ordinary application arrow keys. ↑/↓ switches sessions.
+Ctrl+Q, F12 or Esc returns to the list. To enter a session, return
 to the list first. Ctrl+Enter is ignored throughout the manager and monitor.
 
 The monitor keeps a narrow session list beside a wide control pane. ↑/↓ and Esc
@@ -138,8 +135,8 @@ are manager keys and never reach the application; bracketed paste stays literal.
 The monitor joins shared control, including when another terminal is attached.
 The oldest controller sets the PTY size; other monitors crop the same screen to
 their panes. When that controller leaves, the next one applies its own size.
-Unavailable tasks display “Unable to monitor”; F5 retries and F12/Esc returns to
-the list. Embedded
+Unavailable tasks display “Unable to monitor”. F5 retries.
+Ctrl+Q/F12 or Esc returns to the list. Embedded
 control supports keyboard input; use `attach --no-status` for native terminal
 behavior and terminal extensions.
 

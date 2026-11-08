@@ -161,9 +161,9 @@ func (m model) helpLine(width int) string {
 			hint, compact = t("settings_hint"), "↑↓ ←→ Enter Esc"
 		}
 	case m.monitoring:
-		hint, compact = t("monitor_hint"), "↑↓ Shift+↑↓ Esc/F12 Ctrl+F"
+		hint, compact = t("monitor_hint"), "↑↓ Shift+↑↓ Ctrl+Q/F12 Ctrl+F"
 		if m.monitorFrame.Err != nil {
-			hint, compact = t("monitor_retry_hint"), "↑↓ F5 Esc/F12"
+			hint, compact = t("monitor_retry_hint"), "↑↓ F5 Ctrl+Q/F12"
 		}
 	}
 	if hint != "" {
@@ -320,7 +320,7 @@ func (m model) helpView(width int) []string {
 	for _, binding := range bindings {
 		lines = append(lines, p.accent.Render(binding[0])+"  "+binding[1])
 	}
-	lines = append(lines, "", t("detach_hint"), p.muted.Render(t("literal_prefix_hint")), t("help_close_hint"))
+	lines = append(lines, "", t("detach_hint"), t("help_close_hint"))
 	return lines
 }
 

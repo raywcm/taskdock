@@ -44,8 +44,8 @@ README.
 - **Monitoring changes the PTY size.** The preview uses its pane size and retains
   that size when leaving. Full attach uses the terminal size minus its status
   row. Unreachable tasks display “Unable to monitor.” The preview accepts input
-  immediately. ↑/↓ selects a task and Esc/F12 returns to the list. Shift+↑/↓
-  sends ordinary arrow keys to the application.
+  immediately. ↑/↓ selects a task. Ctrl+Q/F12 or Esc returns to the list.
+  Shift+↑/↓ sends ordinary arrow keys to the application.
 - **Connection roles are scoped to one Unix account.** Read-only limits that
   connection. The same account can open another management client. Shared inputs
   can interfere. The oldest connected controller determines the PTY size.

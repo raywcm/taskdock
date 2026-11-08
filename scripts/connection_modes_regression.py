@@ -137,14 +137,14 @@ def test_cli_and_tui(h):
         frame(owner,3,b'visible-to-observer\n')
         wait_view(fd,term,lambda text:'ECHO:visible-to-observer' in text)
         assert b'FORBIDDEN' not in h.cli('logs',ref,'--raw').stdout
-        os.write(fd,b'\x02d');drain(fd);assert h.join(pid)==0
+        os.write(fd,b'\x11');drain(fd);assert h.join(pid)==0
         # Ordinary Enter joins shared; c exposes explicit read-only/shared/takeover.
         pid,fd=h.spawn_tty();term=Terminal()
         wait_view(fd,term,lambda text:'mode-ui' in text)
         os.write(fd,b'c')
         wait_view(fd,term,lambda text:'Connection modes' in text)
         os.write(fd,b'\x1b[A\r');wait_view(fd,term,lambda text:'Read only' in text and 'Connection modes' not in text)
-        os.write(fd,b'\x02d');term.feed(wait_output(fd,b'TaskDock'))
+        os.write(fd,b'\x11');term.feed(wait_output(fd,b'TaskDock'))
         wait_view(fd,term,lambda text:term.alternate and 'mode-ui' in text and 'Memory' in text)
         # Choose shared control and send input from both ends.
         os.write(fd,b'c');wait_view(fd,term,lambda text:'Connection modes' in text)
@@ -152,7 +152,7 @@ def test_cli_and_tui(h):
         os.write(fd,b'from-ui-shared\n');output(owner,b'ECHO:from-ui-shared\n')
         frame(owner,3,b'from-other-controller\n')
         wait_view(fd,term,lambda text:'ECHO:from-other-controller' in text)
-        os.write(fd,b'\x02d');term.feed(wait_output(fd,b'TaskDock'))
+        os.write(fd,b'\x11');term.feed(wait_output(fd,b'TaskDock'))
         wait_view(fd,term,lambda text:term.alternate and 'mode-ui' in text and 'Memory' in text)
         # Takeover requires a second, explicit confirmation.
         os.write(fd,b'c');wait_view(fd,term,lambda text:'Connection modes' in text)
@@ -168,7 +168,7 @@ def test_cli_and_tui(h):
         replacement,other=h.spawn_tty('attach',ref,'--takeover');other_term=Terminal()
         wait_view(other,other_term,lambda text:'Take over' in text)
         wait_view(fd,term,lambda text:'taken over in another terminal' in text and 'Memory' in text)
-        os.write(other,b'\x02d');drain(other);assert h.join(replacement)==0
+        os.write(other,b'\x11');drain(other);assert h.join(replacement)==0
         os.write(fd,b'q');drain(fd);assert h.join(pid)==0
         print('PASS CLI read-only filters real keyboard, TUI explicit choices/default shared, shared input, confirmed/cancelled takeover, displaced TUI returns to list',flush=True)
     finally:owner.close();h.cli('stop',ref)
@@ -182,10 +182,10 @@ def test_fullscreen(h):
         observer,other=h.spawn_tty('attach','mode-screen',flag);term=Terminal()
         text=wait_view(other,term,lambda text:'SCREEN-TITLE' in text and 'STATIC-LABEL' in text)
         assert term.alternate,'viewer did not restore alternate screen'
-        os.write(other,b'\x02d');drain(other);assert h.join(observer)==0
+        os.write(other,b'\x11');drain(other);assert h.join(observer)==0
         owner_term.feed(drain(fd,.15))
         assert 'STATIC-LABEL' in '\n'.join(owner_term.display)
-    os.write(fd,b'\x02d');drain(fd);assert h.join(pid)==0
+    os.write(fd,b'\x11');drain(fd);assert h.join(pid)==0
     h.cli('stop','mode-screen')
     print('PASS fullscreen read-only/shared join requests owner repaint and restores static cells/modes',flush=True)
 
@@ -234,7 +234,7 @@ def test_old_broker(binary,old_binary):
             pid,fd=h.spawn_tty('attach',ref);term=Terminal()
             wait_view(fd,term,lambda text:'TaskDock' in text)
             os.write(fd,b'old-broker-still-usable\n');wait_view(fd,term,lambda text:'ECHO:old-broker-still-usable' in text)
-            os.write(fd,b'\x02d');drain(fd);assert h.join(pid)==0
+            os.write(fd,b'\x11');drain(fd);assert h.join(pid)==0
             print('PASS old broker rejects all new modes without acquiring control; ordinary attach and original task PIDs preserved',flush=True)
         finally:h.cleanup()
     with tempfile.TemporaryDirectory(prefix='tdock-modes-legacy-client-') as root:

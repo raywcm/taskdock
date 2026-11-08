@@ -76,7 +76,7 @@ Shells and other terminal programs work the same way:
 
 ```sh
 tdock new -s work -- bash
-# Press F12 to detach. The task keeps running.
+# Press Ctrl+Q to detach. The task keeps running.
 tdock
 # Select work and press Enter to reconnect.
 ```
@@ -101,17 +101,17 @@ memory use. Use `tdock --no-status` for native forwarding and terminal scrollbac
 Starting a nested manager or session inside TaskDock is blocked; `ls`, `logs` and
 other management commands remain available.
 
-Inside a task, **F12** or **Ctrl+B, d** returns to the list.
-For compatibility, **Ctrl+B, Ctrl+D** (hold Ctrl while pressing B then D) and
-**Ctrl+], d** also work. Standalone **Ctrl+D** and **Ctrl+C** go to the application.
-On Mac keyboards, F12 may require Fn. Use `tdock attach --no-escape TASK` to send
-all keys, including F12, to the application.
+Inside a task, **Ctrl+Q** or **F12** returns to the list.
+On Mac, use Control+Q. F12 may require Fn. Standalone **Ctrl+D** and **Ctrl+C**
+go to the application. Use `tdock attach --no-escape TASK` to send all keys,
+including Ctrl+Q and F12, to the application.
 
 New sessions created from the TUI open selected in the monitor, with a narrow
 session list and a wide control pane. Type
 directly, including Enter; use **Ctrl+F** to search, **↑/↓** to switch tasks, and
-**Esc/F12** to return to the list. Shift+↑/↓ sends ordinary arrow keys to the application. Enter opens a session from the list; `v` opens
-the monitor. The monitor has no fullscreen shortcut. Ctrl+Enter is ignored.
+**Ctrl+Q/F12** to return to the list. Esc also returns from the monitor.
+Shift+↑/↓ sends ordinary arrow keys to the application. Enter opens a session
+from the list, and `v` opens the monitor. The monitor has no fullscreen shortcut. Ctrl+Enter is ignored.
 Default connections share control automatically. Use `c` to choose read-only,
 shared control or a confirmed takeover. The first controller sets the size;
 followers do not resize the application.

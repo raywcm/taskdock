@@ -71,7 +71,7 @@ def main():
             for _ in range(2):
                 for task,child_pid in active:
                     pid,fd=h.spawn_tty('attach',task)
-                    drain(fd,.2);os.write(fd,b'\x1dd');drain(fd,.15)
+                    drain(fd,.2);os.write(fd,b'\x11');drain(fd,.15)
                     assert h.join(pid)==0
                     after=h.show(task)
                     assert after['health']=='online' and after['runtime']['child_pid']==child_pid

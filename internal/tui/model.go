@@ -642,7 +642,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					return m, m.syncMonitor()
 				}
-			case "f12":
+			case "ctrl+q", "f12":
 				if m.monitoring {
 					m.monitoring = false
 					m.closeMonitor()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real-PTY embedded control, opaque input, manager prefixes and task identity."""
+"""Real-PTY embedded control, opaque input, manager keys and task identity."""
 
 import os
 import pathlib
@@ -69,9 +69,9 @@ def main():
             expected = b"nscqvh"
             until(lambda: received(harness, alpha) == expected)
             payload = (
-                b"\r\x03\x04\x1b[C\x1b[D"
+                b"\r\x03\x04\x02d\x02\x04\x1dd\x1b[C\x1b[D"
                 + "中文🙂".encode()
-                + b"\x1b[200~\x1b[24~\x02d\x1b[A\x1b[B\x1b\x1b[201~"
+                + b"\x1b[200~\x11\x1b[113;5u\x1b[24~\x02d\x1b[A\x1b[B\x1b\x1b[201~"
             )
             os.write(tty_fd, payload)
             expected += payload
@@ -125,7 +125,7 @@ def main():
             wait_view(tty_fd, terminal, lambda text: "Memory" in text and "Control" not in text)
             os.write(tty_fd, b"v")
             wait_view(tty_fd, terminal, lambda text: "Control" in text and "READY-alpha" in text)
-            os.write(tty_fd, b"\x02\x04")
+            os.write(tty_fd, b"\x11")
             wait_view(tty_fd, terminal, lambda text: "Memory" in text and "Control" not in text)
             assert received(harness, alpha) == expected
             os.write(tty_fd, b"q")

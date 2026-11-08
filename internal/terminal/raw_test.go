@@ -30,10 +30,10 @@ func TestPasteEndingAfterLiteralEscDoesNotCaptureNextKey(t *testing.T) {
 }
 
 func TestEmbeddedCommandPreservesSwitchTypeaheadAcrossEverySplit(t *testing.T) {
-	input := []byte("before\x02\x1b[Bafter中文")
+	input := []byte("before\x1b[Bafter中文")
 	for split := 0; split <= len(input); split++ {
 		commands := 0
-		d := EscapeDecoder{PrefixCommand: func(raw []byte) bool {
+		d := EscapeDecoder{Command: func(raw []byte, _ uint16) bool {
 			if string(raw) != "\x1b[B" {
 				return false
 			}
@@ -58,8 +58,8 @@ func TestEmbeddedCommandPreservesSwitchTypeaheadAcrossEverySplit(t *testing.T) {
 	}
 }
 
-func TestEmbeddedCommandsIgnorePasteAndUnknownPrefixes(t *testing.T) {
-	d := EscapeDecoder{PrefixCommand: func(raw []byte) bool {
+func TestEmbeddedCommandsIgnorePasteAndRemovedShortcuts(t *testing.T) {
+	d := EscapeDecoder{Command: func(raw []byte, _ uint16) bool {
 		return string(raw) == "\x1b[B"
 	}}
 	input := []byte("\x02x\x1b[200~\x02\x1b[B\x1b[24~\x02d\x1b[201~")
@@ -106,18 +106,18 @@ func TestCtrlEnterOnlyInterceptedByEmbeddedControl(t *testing.T) {
 
 func TestEscapeAcrossReadBoundaries(t *testing.T) {
 	d := EscapeDecoder{}
-	first, detached := d.Feed([]byte{'a', 0x1d})
+	first, detached := d.Feed([]byte("a\x1b[113;"))
 	if detached || string(first) != "a" {
-		t.Fatal("incorrect partial prefix")
+		t.Fatal("incorrect partial escape")
 	}
-	second, detached := d.Feed([]byte{'d', 'x'})
-	if !detached || len(second) != 0 {
-		t.Fatal("detach or discard suffix failed")
+	second, detached := d.Feed([]byte("5ux"))
+	if !detached || len(second) != 0 || string(d.Remaining) != "x" {
+		t.Fatal("detach or remaining input failed")
 	}
 }
 
 func TestVimEscapeAndDetachCoalescedDuringStartup(t *testing.T) {
-	for _, shortcut := range []string{"\x02d", "\x02\x04", "\x1dd"} {
+	for _, shortcut := range []string{"\x11", "\x1b[113;5u", "\x1b[24~"} {
 		input := []byte("text\x1b" + shortcut + "suffix")
 		for split := 0; split <= len(input); split++ {
 			d := EscapeDecoder{}
@@ -149,55 +149,19 @@ func TestOrdinaryInputUnchanged(t *testing.T) {
 	}
 }
 
-func TestLiteralPrefixAndBypass(t *testing.T) {
-	d := EscapeDecoder{}
-	out, detached := d.Feed([]byte{0x1d, 0x1d, 0x1d, 'x', 0x1d})
-	out = append(out, d.Flush()...)
-	if detached || !bytes.Equal(out, []byte{0x1d, 0x1d, 'x', 0x1d}) {
-		t.Fatalf("literal prefix: %v", out)
-	}
-	d = EscapeDecoder{Disable: true}
-	input := []byte{0x1d, 'd'}
-	out, detached = d.Feed(input)
-	if detached || !bytes.Equal(out, input) {
-		t.Fatal("bypass transformed bytes")
-	}
-}
-
-func TestBothDetachPrefixesAcrossBoundaries(t *testing.T) {
-	for _, prefix := range []byte{0x02, 0x1d} {
-		d := EscapeDecoder{}
-		first, detached := d.Feed([]byte{'a', prefix})
-		if detached || string(first) != "a" {
-			t.Fatalf("prefix %x: lost input", prefix)
-		}
-		last, detached := d.Feed([]byte{'d', 'x'})
-		if !detached || len(last) != 0 {
-			t.Fatalf("prefix %x: did not detach", prefix)
-		}
-		d = EscapeDecoder{}
-		input := []byte{prefix, prefix, prefix, 'x', prefix}
-		out, detached := d.Feed(input)
-		out = append(out, d.Flush()...)
-		if detached || !bytes.Equal(out, []byte{prefix, prefix, 'x', prefix}) || d.Flush() != nil {
-			t.Fatalf("prefix %x: literal or flush changed: %v", prefix, out)
-		}
-	}
-}
-
-func TestMixedPrefixesAndDisabledInputRemainLiteral(t *testing.T) {
-	input := []byte{0x02, 0x1d, 'd', 0x1d, 0x02, 'x'}
-	d := EscapeDecoder{}
-	out, detached := d.Feed(input)
-	if detached || !bytes.Equal(out, input) {
-		t.Fatalf("unrecognized mixed prefix changed: %v", out)
-	}
-	d = EscapeDecoder{Disable: true}
-	input = []byte{0x02, 'd', 0x1d, 'd'}
-	for _, b := range input {
-		part, detach := d.Feed([]byte{b})
-		if detach || !bytes.Equal(part, []byte{b}) {
-			t.Fatal("no-escape transformed a byte")
+func TestRemovedDetachShortcutsRemainLiteral(t *testing.T) {
+	for _, input := range []string{
+		"\x02d", "\x02\x04", "\x1dd", "\x02\x02", "\x1d\x1d", "\x02", "\x1d",
+		"\x1b[98;5ud", "\x1b[98;5u\x1b[100;5u", "\x1b[27;5;98~\x1b[27;5;100~",
+	} {
+		for split := 0; split <= len(input); split++ {
+			d := EscapeDecoder{}
+			first, detached := d.Feed([]byte(input[:split]))
+			last, done := d.Feed([]byte(input[split:]))
+			output := append(append(first, last...), d.Flush()...)
+			if detached || done || string(output) != input {
+				t.Fatalf("removed shortcut %q split %d changed to %q", input, split, output)
+			}
 		}
 	}
 }
@@ -205,10 +169,7 @@ func TestMixedPrefixesAndDisabledInputRemainLiteral(t *testing.T) {
 func TestDetachKeysAtEveryReadBoundary(t *testing.T) {
 	for _, key := range []string{
 		"\x1b[24~", "\x1b[24;1~", "\x1b[24;1:1~", "\x1b[24;1:2~", "\x1b[24;65~",
-		"\x02d", "\x02\x04", "\x1dd",
-		"\x1b[98;5ud", "\x1b[98;5u\x1b[100;5u",
-		"\x1b[98;5u\x1b[98;5:3u\x1b[57442;1:3ud",
-		"\x1b[27;5;98~\x1b[27;5;100~",
+		"\x11", "\x1b[113;5u", "\x1b[113;5:1u", "\x1b[113;5:2u", "\x1b[113;69u", "\x1b[27;5;113~",
 	} {
 		for split := 0; split <= len(key); split++ {
 			d := EscapeDecoder{}
@@ -229,9 +190,10 @@ func TestDetachDecoderPreservesOtherInput(t *testing.T) {
 	for _, input := range []string{
 		"\x04", "\x1b[100;5u", "\x1b[27;5;100~", // Ctrl+D without a prefix.
 		"\x1b[24;2~\x1b[24;5~\x1b[24;1:3~",       // Modified/released F12.
+		"\x1b[113;6u\x1b[113;5:3u\x1b[27;6;113~", // Modified/released Ctrl+Q.
 		"\x1b[A\x1b[1;5D\x1b[<0;10;12M\x1b[1;2R", // Other terminal input.
 		"中文🙂\x00\xff\xf0\xf1\xf2\xf3", "\x1bx", "\x1b\x1b", "\x1b",
-		"\x1b[200~pasted:\x1b[24~\x02d\x02\x04\x1dd\x04\x1b[201~",
+		"\x1b[200~pasted:\x11\x1b[113;5u\x1b[24~\x02d\x02\x04\x1dd\x04\x1b[201~",
 		"\x1b[" + strings.Repeat("1", 1000) + "~",
 	} {
 		for width := 1; width <= len(input); width++ {
@@ -265,15 +227,7 @@ func TestEscapeTimeoutAndPasteExit(t *testing.T) {
 		t.Fatal("expired prefix became a shortcut")
 	}
 	d = EscapeDecoder{}
-	d.Feed([]byte{0x02})
-	if d.flushEscape() != nil {
-		t.Fatal("Ctrl+B should wait for its second key")
-	}
-	if _, done = d.Feed([]byte{0x04}); !done {
-		t.Fatal("held Ctrl did not detach")
-	}
-	d = EscapeDecoder{}
-	input := "\x1b[200~\x1b[24~\x02d\x1b[201~"
+	input := "\x1b[200~\x11\x1b[113;5u\x1b[24~\x02d\x1b[201~"
 	out, done = d.Feed([]byte(input))
 	if done || string(out) != input {
 		t.Fatal("paste intercepted")
@@ -285,14 +239,14 @@ func TestEscapeTimeoutAndPasteExit(t *testing.T) {
 
 func TestNoEscapePassesAllDetachKeys(t *testing.T) {
 	d := EscapeDecoder{Disable: true}
-	input := "\x1b[24~\x02d\x02\x04\x1dd\x04\x1b[98;5u\x1b[100;5u"
+	input := "\x11\x1b[113;5u\x1b[27;5;113~\x1b[24~\x02d\x02\x04\x1dd\x04"
 	out, done := d.Feed([]byte(input))
 	if done || string(out) != input || d.Flush() != nil {
 		t.Fatal("no-escape changed input")
 	}
 }
 
-func TestPendingReleaseBufferIsBounded(t *testing.T) {
+func TestEscapeBufferIsBounded(t *testing.T) {
 	d := EscapeDecoder{}
 	input := "\x1b[98;5u" + strings.Repeat("\x1b[98;5:3u", 1000)
 	out, done := d.Feed([]byte(input))
@@ -300,7 +254,7 @@ func TestPendingReleaseBufferIsBounded(t *testing.T) {
 	if done || string(out) != input {
 		t.Fatal("release flood lost bytes")
 	}
-	if len(d.prefix) > 256 || len(d.escape) > inputEscapeLimit {
+	if len(d.escape) > inputEscapeLimit {
 		t.Fatal("unbounded input state")
 	}
 }

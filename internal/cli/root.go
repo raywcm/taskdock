@@ -147,7 +147,7 @@ func NewRoot() *cobra.Command {
 			id = metrics.SessionForProcess(cmd.Context(), records, os.Getpid())
 		}
 		if id != "" {
-			return errors.New("already inside a TaskDock session; press F12 or Ctrl+B, d to return to the list")
+			return errors.New("already inside a TaskDock session; press Ctrl+Q or F12 to return to the list")
 		}
 		return nil
 	}
@@ -261,7 +261,7 @@ func NewRoot() *cobra.Command {
 	root.AddCommand(create)
 	var noEscape, takeover, readOnly, shared bool
 	var attachTarget string
-	attach := &cobra.Command{Use: "attach-session [SESSION]", Aliases: []string{"attach", "a"}, Short: "Enter a task; F12 detaches", Args: targetArgs(&attachTarget, 0), RunE: func(cmd *cobra.Command, args []string) error {
+	attach := &cobra.Command{Use: "attach-session [SESSION]", Aliases: []string{"attach", "a"}, Short: "Enter a task; Ctrl+Q or F12 detaches", Args: targetArgs(&attachTarget, 0), RunE: func(cmd *cobra.Command, args []string) error {
 		m, err := open()
 		if err != nil {
 			return err

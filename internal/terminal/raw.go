@@ -28,9 +28,6 @@ func WithRaw(tty *os.File, run func() error) (err error) {
 // Unknown input is returned unchanged; incomplete escape sequences are bounded.
 type EscapeDecoder struct {
 	Disable bool
-	// PrefixCommand handles manager commands in an embedded terminal. Ordinary
-	// full-screen attachments leave this nil and retain byte-transparent input.
-	PrefixCommand func([]byte) bool
 	// Command recognizes additional manager keys outside bracketed paste.
 	Command func([]byte, uint16) bool
 	// Ignore drops reserved keys without ending the current input route.
@@ -41,8 +38,6 @@ type EscapeDecoder struct {
 	Report func([]byte) bool
 	// Remaining contains bytes after a handled command, for pane switching.
 	Remaining []byte
-	pending   uint16
-	prefix    []byte
 	escape    []byte
 	pasting   bool
 }
@@ -131,8 +126,7 @@ func (d *EscapeDecoder) consume(raw []byte, key uint16) ([]byte, bool) {
 	if d.Report != nil && d.Report(raw) {
 		return nil, false
 	}
-	if key == keyF12 {
-		d.pending, d.prefix = 0, nil
+	if key == 0x11 || key == keyF12 {
 		return nil, true
 	}
 	if key == keyPasteStart {
@@ -141,31 +135,8 @@ func (d *EscapeDecoder) consume(raw []byte, key uint16) ([]byte, bool) {
 	if !d.pasting && d.Ignore != nil && d.Ignore(raw, key) {
 		return nil, false
 	}
-	if !d.pasting && d.pending == 0 && d.Command != nil && d.Command(raw, key) {
+	if !d.pasting && d.Command != nil && d.Command(raw, key) {
 		return nil, true
-	}
-	if d.pending != 0 {
-		if key == keyRelease && len(d.prefix)+len(raw) <= 256 {
-			d.prefix = append(d.prefix, raw...)
-			return nil, false
-		}
-		prefix, saved := d.pending, d.prefix
-		d.pending, d.prefix = 0, nil
-		if key == 'd' || (prefix == 0x02 && key == 0x04) {
-			return nil, true
-		}
-		if prefix == 0x02 && d.PrefixCommand != nil && d.PrefixCommand(raw) {
-			return nil, true
-		}
-		if key == prefix {
-			return saved, false
-		}
-		return append(saved, raw...), false
-	}
-	if !d.pasting && (key == 0x02 || key == 0x1d) {
-		d.pending = key
-		d.prefix = append([]byte(nil), raw...)
-		return nil, false
 	}
 	if !d.pasting && d.Transform != nil {
 		return d.Transform(raw), false
@@ -231,24 +202,17 @@ func escapeKey(raw []byte) uint16 {
 		switch code {
 		case 13:
 			return KeyCtrlEnter
-		case 98:
-			return 0x02
-		case 100:
-			return 0x04
-		case 93:
-			return 0x1d
+		case 113:
+			return 0x11
 		case 102:
 			return 0x06
 		}
-	}
-	if code == 100 && mods == 0 {
-		return 'd'
 	}
 	return 0
 }
 
 // flushEscape releases a standalone Esc or a truncated sequence after a short
-// input deadline. Ctrl+B itself remains pending until the next key.
+// input deadline.
 func (d *EscapeDecoder) flushEscape() []byte {
 	if len(d.escape) == 0 {
 		return nil
@@ -259,12 +223,7 @@ func (d *EscapeDecoder) flushEscape() []byte {
 }
 
 func (d *EscapeDecoder) Flush() []byte {
-	out := d.flushEscape()
-	if d.pending != 0 {
-		out = append(out, d.prefix...)
-		d.pending, d.prefix = 0, nil
-	}
-	return out
+	return d.flushEscape()
 }
 
 // PendingEscape reports a partial terminal sequence requiring a short timeout.
@@ -274,5 +233,5 @@ func (d *EscapeDecoder) PendingReport() bool {
 	return d.Report != nil && len(d.escape) >= 2 && d.escape[1] == ']'
 }
 
-// FlushEscape forwards a standalone Esc without discarding a pending Ctrl+B.
+// FlushEscape forwards a standalone Esc or truncated escape sequence.
 func (d *EscapeDecoder) FlushEscape() []byte { return d.flushEscape() }

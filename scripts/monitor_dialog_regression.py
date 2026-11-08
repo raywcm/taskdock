@@ -105,7 +105,7 @@ def test_monitor(h,frontend):
         resize(pid,fd,terminal,30,120)
         wait_view(fd,terminal,lambda text:'SIZE:23,85' in text)
         assert latest_size(h,alpha)==(23,85)
-        os.write(fd,b'\x02\x1b[B')
+        os.write(fd,b'\x1b[B')
         wait_view(fd,terminal,lambda text:'STATIC-beta' in text and 'Control' in text)
         assert latest_size(h,beta)==(24,80), 'joining must not resize the existing controller'
         until(lambda:latest_size(h,alpha)==(23,85))
@@ -128,7 +128,7 @@ def test_monitor(h,frontend):
         wait_view(fd,terminal,lambda text:'STATIC-beta' in text and 'alpha' not in text)
         os.write(fd,b'K')
         wait_view(fd,terminal,lambda text:'INPUT:K' in text)
-        os.write(fd,b'\x02d')
+        os.write(fd,b'\x11')
         wait_view(fd,terminal,lambda text:'Memory' in text and 'STATIC-beta' not in text)
         # Returning to monitor sets the pane size and leaves it in place on exit.
         os.write(fd,b'v');wait_view(fd,terminal,lambda text:'STATIC-beta' in text)
@@ -191,7 +191,7 @@ def test_dialogs_and_names(h):
     os.write(fd,b'y')
     wait_view(fd,terminal,lambda text:'Control' in text and 'work-4-2' in text and 'Name already exists' not in text)
     created=next(r for r in records(h) if r['spec']['name']=='work-4-2')
-    os.write(fd,b'\x02d');wait_view(fd,terminal,lambda text:terminal.alternate and 'Memory' in text)
+    os.write(fd,b'\x11');wait_view(fd,terminal,lambda text:terminal.alternate and 'Memory' in text)
     # Stop and delete are actual centered modals, preserving the list behind.
     os.write(fd,b's');wait_view(fd,terminal,lambda text:'Confirm stop' in text)
     modal(terminal,'Confirm stop','work-4-2',fd=fd)

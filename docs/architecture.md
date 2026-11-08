@@ -86,12 +86,12 @@ the screen to their panes. The session list takes a quarter of the width, capped
 at 28 columns. Only the selected preview is active. Leaving the monitor retains
 the PTY size. Repeated identical resize requests are ignored.
 
-F12, Ctrl+B then d or Ctrl+D, and Ctrl+] then d detach from fullscreen sessions.
+Ctrl+Q and F12 detach from fullscreen sessions.
 Bracketed paste bypasses shortcuts. Split escape sequences are buffered and
 incomplete sequences flush after 50 ms. `--no-escape` forwards every key.
 In the monitor, ↑/↓ switches tasks, Shift+↑/↓ sends application arrows, and
-Esc/F12 returns to the list. Ctrl+F pauses forwarding for search. Enter opens
-fullscreen from the task list.
+Ctrl+Q/F12 or Esc returns to the list. Ctrl+F pauses forwarding for search.
+Enter opens fullscreen from the task list.
 
 VT screens are capped at 512×256 cells with about 4 MiB of parser buffering.
 Historical queries and terminal side effects stay offscreen. Live fullscreen

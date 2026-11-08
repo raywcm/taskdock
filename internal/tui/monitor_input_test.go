@@ -16,6 +16,9 @@ func TestMonitorNavigationNeverReachesApplication(t *testing.T) {
 		{"\x1bOA", "previous"}, {"\x1bOB", "next"},
 		{"\x1b[57352u", "previous"}, {"\x1b[57353u", "next"},
 		{"\x1b[27u", "back"},
+		{"\x11", "back"}, {"\x1b[113;5u", "back"},
+		{"\x1b[113;5:1u", "back"}, {"\x1b[27;5;113~", "back"},
+		{"\x1b[24~", "back"},
 	} {
 		for split := 0; split <= len(test.raw); split++ {
 			actions := make(chan monitorAction, 2)
@@ -115,9 +118,12 @@ func TestMonitorTypeaheadAndFailureRelease(t *testing.T) {
 	if route.enabled || len(route.pending) > 0 || m.monitorFrame.Err == nil {
 		t.Fatal("failed monitor retained the keyboard or buffered application input")
 	}
-	m, _ = press(m, tea.KeyF12)
-	if m.monitoring {
-		t.Fatal("F12 did not return from failed monitoring")
+	for _, key := range []tea.KeyPressMsg{{Code: 'q', Mod: tea.ModCtrl}, {Code: tea.KeyF12}} {
+		failed := m
+		next, _ := failed.Update(key)
+		if next.(model).monitoring {
+			t.Fatalf("%s did not return from failed monitoring", key.String())
+		}
 	}
 }
 

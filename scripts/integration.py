@@ -220,7 +220,7 @@ def test_foreground_startup(h):
     pid,fd=h.spawn_tty('new','--name','prompt','--','/bin/sh','-c','printf FIRST-PROMPT; read value')
     out=wait_output(fd,b'FIRST-PROMPT')
     assert out.count(b'FIRST-PROMPT')==1,out
-    os.write(fd,b'\x1dd');drain(fd);assert h.join(pid)==0
+    os.write(fd,b'\x11');drain(fd);assert h.join(pid)==0
     h.cli('stop','prompt')
     print('PASS fast foreground output/exit races and first prompt delivery',flush=True)
 
@@ -241,7 +241,7 @@ def test_attach(h):
     wait_output(fd, b'ECHO:from-second')
     os.write(fd2, b'\x1b[24~'); drain(fd2)
     assert h.join(pid2) == 0
-    os.write(fd, b'\x02d')
+    os.write(fd, b'\x11')
     end = wait_output(fd, b'\x1b[23;2t')
     assert b'\x1b[?1049l' in end and b'\x1b[?25h' in end
     assert end.rfind(b'\x1b[23;2t') > end.rfind(b'\x1b[?1049l'), end
@@ -308,7 +308,7 @@ def test_resize_interrupt_and_noescape(h):
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', 37, 103, 0, 0))
     os.kill(pid, signal.SIGWINCH)
     wait_output(fd, b'SIZE:36:103')
-    os.write(fd, b'\x1dd');drain(fd);assert h.join(pid) == 0
+    os.write(fd, b'\x11');drain(fd);assert h.join(pid) == 0
     h.cli('stop', task)
     task = h.create('interrupt', '/bin/sh', '-c', 'exec sleep 30')
     pid, fd = h.spawn_tty('attach', task)
@@ -426,7 +426,7 @@ def test_tui(h):
             created=ui.show('tui-created')['spec']['id']
             os.write(fd,b'printf "TUI-OK\\n"\r')
             assert b'TUI-OK' in drain(fd,.3)
-            os.write(fd,b'\x02d');wait_output(fd,b'TaskDock')
+            os.write(fd,b'\x11');wait_output(fd,b'TaskDock')
             os.write(fd,b'\x1bOQ');drain(fd)
             os.write(fd,b'\x01\x0btui-renamed\r');drain(fd,.3)
             until(lambda:ui.show(created)['spec']['name']=='tui-renamed')
@@ -462,7 +462,7 @@ def test_bash_and_vim(h):
         pid,fd=h.spawn_tty('attach',task);drain(fd,.3)
         os.write(fd,'i第一行\n第二行'.encode()+b'\x1b')
         drain(fd)
-        os.write(fd,b'\x1dd');drain(fd);assert h.join(pid)==0
+        os.write(fd,b'\x11');drain(fd);assert h.join(pid)==0
         pid,fd=h.spawn_tty('attach',task);drain(fd,.3)
         os.write(fd,'A 尾巴'.encode()+b'\x1b:wq\r');drain(fd,.3)
         assert h.join(pid)==0

@@ -125,7 +125,7 @@ def reenter(h,new_binary,name,argv,expected):
     assert all(any(label in row for row in terminal.display) for label in expected),terminal.display
     h.binary=new_binary
     for cycle in range(3):
-        os.write(fd,b'\x02d' if cycle%2==1 else b'\x1dd');terminal.feed(drain(fd,.2));assert h.join(pid,on_output=terminal.feed)==0
+        os.write(fd,b'\x11' if cycle%2==1 else b'\x1b[24~');terminal.feed(drain(fd,.2));assert h.join(pid,on_output=terminal.feed)==0
         assert not terminal.alternate,'detach left alternate screen enabled'
         assert any('OUTER-SHELL-KEEP' in row for row in terminal.main.display)
         before=list(terminal.main.display)
@@ -142,7 +142,7 @@ def reenter(h,new_binary,name,argv,expected):
             assert terminal.current.cursor.hidden,'hidden cursor was not restored'
             assert 1000<<5 in terminal.current.mode,'mouse tracking was not restored'
             assert 2004<<5 in terminal.current.mode,'paste mode was not restored'
-    os.write(fd,b'\x1dd');terminal.feed(drain(fd,.2));assert h.join(pid,on_output=terminal.feed)==0
+    os.write(fd,b'\x11');terminal.feed(drain(fd,.2));assert h.join(pid,on_output=terminal.feed)==0
     h.cli('stop',name)
     print('PASS',name,'three reentries restore full visible labels/modes and preserve outer shell',flush=True)
 
@@ -153,7 +153,7 @@ def plain_shell(h):
     terminal.feed(drain(fd,.3))
     assert not terminal.alternate,'plain shell was unnecessarily forced into alternate screen'
     assert any('SHELL-SCROLLBACK-KEEP' in line for line in terminal.display)
-    os.write(fd,b'\x1dd');terminal.feed(drain(fd,.2));assert h.join(pid,on_output=terminal.feed)==0
+    os.write(fd,b'\x11');terminal.feed(drain(fd,.2));assert h.join(pid,on_output=terminal.feed)==0
     h.cli('stop','plain')
     print('PASS plain shell retains normal screen and scrollback behavior',flush=True)
 

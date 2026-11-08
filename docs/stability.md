@@ -30,7 +30,7 @@ For a race-enabled run, build to a fresh path and pass it to
 | history_view_regression.py | History scrolling, empty output and OSC filtering |
 | history_regression.py | Expiry policies and active-task protection |
 | tui_exit_regression.py | Ctrl+C after monitor detach; INT/TERM/HUP cleanup across five pages |
-| detach_keys_regression.py | F12, both Ctrl+B forms, standalone Ctrl+D/Esc, paste and no-escape |
+| detach_keys_regression.py | Ctrl+Q/F12, removed-prefix forwarding, standalone Ctrl+D/Esc, paste and no-escape |
 | stress.py | Concurrent health scans and broker RSS |
 | idle_cpu_regression.py | Idle CPU guard for fullscreen, read-only, list and monitor |
 | installer_test.py | Platform selection, checksums, pinned versions and failed-upgrade protection |

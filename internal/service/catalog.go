@@ -14,7 +14,6 @@ type TaskList interface {
 	List(context.Context) ([]task.Record, error)
 }
 
-func Label(r task.Record) string { return LabelLocale(r, i18n.New("en")) }
 func LabelLocale(r task.Record, l i18n.Locale) string {
 	state := "not_started"
 	if r.Runtime != nil {

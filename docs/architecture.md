@@ -1,9 +1,8 @@
 # Architecture
 
-Each task has an independent broker, started by re-executing the same binary as
-`__broker` in a new session. The broker owns the PTY, application session, output
-logs and runtime state. A readiness pipe synchronizes startup. Frontend exit does
-not cancel the task.
+Each task runs in an independent broker, started by re-executing the binary as
+`__broker` in a new process session. The broker owns the PTY, child process, logs
+and runtime state. A readiness pipe synchronizes startup.
 
 ```mermaid
 flowchart LR
@@ -20,90 +19,85 @@ flowchart LR
 | Module | Responsibility |
 | --- | --- |
 | task, store | Data, validation, atomic snapshots and file locks |
-| protocol, ipc | Bounded frames, Unix sockets, UID and instance checks |
+| protocol, ipc | Frames, Unix sockets, UID and instance checks |
 | broker, daemon | Subscriptions, control ownership, supervision and logs |
 | ptyprocess | PTY, resize, wait and process-session signals |
 | service | Shared CLI/TUI operations and startup |
-| terminal, vtscreen | Raw input, native forwarding, bounded screens, status row and cleanup |
+| terminal, vtscreen | Input, native forwarding, status viewport and cleanup |
 | tui, monitor | Task list, dialogs and preview terminal |
 | config, i18n, metrics, history | Settings, languages, resource sampling and expiry |
 
 ## Lifecycle and storage
 
-Startup becomes running after the listener and PTY are ready. The broker calls
-Wait once, records exit status, drains output with a deadline, then closes clients.
-Stop signals the managed session with TERM, followed by KILL after one second.
-Linux enumerates processes through `/proc`; macOS uses system process queries.
+A task becomes running after its listener and PTY are ready. The broker waits
+for the child, records its exit status, drains output with a deadline and closes
+clients. Stop sends TERM to the managed session, followed by KILL after one
+second. Linux enumerates processes through `/proc`, and macOS uses system queries.
 
-`spec.json` and `runtime.json` are separate snapshots. Catalog locks serialize
-create/rename/delete/recover; a broker lock spans each task's lifetime. Writes use
-a temporary file, fsync, rename and directory fsync. Directories are 0700 and
-files 0600. Socket peers verify UID, task ID and broker instance ID.
+`spec.json` and `runtime.json` are separate snapshots. A catalog lock serializes
+create, rename, delete and recover. Each broker holds its task's lock for its
+lifetime. Writes use a temporary file, fsync, rename and directory fsync.
+Directories are 0700, files 0600. Socket peers verify UID, task ID and broker
+instance ID.
 
-A dead broker leaves an unreachable record. Recovery takes its lock and updates
-metadata without signalling a stored PID. A new broker cannot recover its PTY.
+Recovery acquires the broker lock before updating stale metadata. It never
+signals stored PIDs. A lost broker cannot recover its PTY.
 
-## Connections and terminal ownership
+Session order lives in `order.json`. Moves re-read it under the catalog lock
+so concurrent frontends preserve each other's changes. A separate `__history`
+worker removes expired records after their broker locks become available.
+Retention defaults to one hour. Set it to zero to disable expiry.
 
-The TUI releases terminal ownership before attach enters raw mode. A separately
-opened `/dev/tty` uses cancellable native poll; readers stop before termios is
-restored. Signals are bridged into graceful TUI exits.
+## Connections
 
-Fullscreen attach uses a bounded VT and row-diff renderer with a fixed status
-row. It paints only dirty screens, at most 20 times per second. A separate
-read-only process-tree sampler updates RSS every two seconds. The oldest
-controller reserves one row in its PTY size. `--no-status` forwards application
-output directly to the host terminal. Input recognizes F12, Ctrl+B then
-d or Ctrl+D, and the legacy Ctrl+] then d. Bracketed paste bypasses shortcuts.
-A bounded input buffer handles split CSI sequences; incomplete escapes flush
-after 50 ms. `--no-escape` bypasses all input transformations.
+Each subscription has an approximately 2 MiB output queue. A slow client is
+disconnected independently. Exclusive, takeover, read-only and shared modes use
+the same stream. The oldest controller owns the PTY size. Permission checks and
+complete input writes are serialized with control changes.
 
-Each output subscription has an approximately 2 MiB queue. A slow client is
-disconnected independently. Exclusive, takeover, read-only and shared connections
-use the same stream; only the oldest controller resizes the PTY. Permission
-checks and complete input writes are serialized with control changes.
+Each broker accepts at most 32 connections. Data frames are limited to 64 KiB,
+control frames to 8 KiB. Logs retain two approximately 8 MiB files. Live output
+continues after a log write failure.
 
-There are at most 32 connections per broker. Data frames are limited to 64 KiB,
-control frames to 8 KiB. Logs retain two approximately 8 MiB files. Log write
-failure does not stop live output.
+Task children inherit `TDOCK_SESSION`, which blocks nested manager, new and
+attach commands. Older sessions are detected through process ancestry and the
+current catalog. Broker/history workers and management commands remain available.
 
-## Screen recovery and preview
+## Terminal views
 
-At attach boundaries, known modes and active text rendition are read from bounded
-logs and the instance's `terminal.json`. Generated SGR restores colors and attributes
-before native live output resumes. Full-screen programs receive a temporary
-one-row resize and a redraw wait of up to two seconds. The status view seeds
-its offscreen buffer from the same bounded logs and reconnects without a
-temporary resize. Captured startup output supersedes the seeded buffer, so it
-is displayed once. Historical queries and terminal
-side effects stay offscreen. Live cursor reports use application coordinates;
-palette queries reach the host terminal.
+The TUI releases the terminal before attach enters raw mode. Attach opens a
+separate `/dev/tty` and joins its cancellable reader before restoring termios.
+Signals trigger graceful TUI cleanup.
 
-The monitor uses a separate VT fed from retained logs. It joins a shared
-connection and forwards ordinary keyboard input. Only the first controller
-resizes the PTY; followers track size notices and ownership changes. ↑/↓ and Esc stay in the
-manager for navigation. Shift+↑/↓ becomes ordinary application arrows.
-The session list uses a quarter of the width, capped at 28 columns; the control
-pane uses the remaining space.
-Leaving retains that size. Ctrl+F pauses input forwarding for session search;
-The monitor cannot start a fullscreen attach; Enter does so from the task list.
-Repeated identical sizes are ignored. Device replies are disabled; only rendered
-cells and SGR reach the frontend. The VT is limited to 512×256 cells and about
-4 MiB of parser buffering. Only the selected preview is active.
-Manager themes apply to the sidebar and controls; application cells retain their
-own colors, including terminal defaults and inverse highlights.
+Fullscreen attach uses a bounded VT with a fixed status row. Dirty rows are
+painted at most 20 times per second. Session name and process-tree RSS refresh
+every two seconds. The controlling frontend reserves one row in the PTY size.
+`--no-status` forwards application output directly to the host terminal.
 
-A per-state-directory `__history` process removes expired stopped records once
-the broker lock is free. Retention defaults to one hour; zero disables it.
-The worker is independent of frontend and task lifetimes.
+At reconnect, terminal modes and text styles are recovered from retained logs
+and the instance's `terminal.json`. Native fullscreen applications receive a
+temporary one-row resize and a redraw wait of up to two seconds. The status
+view seeds its offscreen buffer without that resize. Captured startup output
+replaces the seed to avoid displaying the first prompt twice.
+
+The monitor renders retained logs in a separate VT and forwards keyboard input
+through a shared connection. Followers track the owner's dimensions and crop
+the screen to their panes. The session list takes a quarter of the width, capped
+at 28 columns. Only the selected preview is active. Leaving the monitor retains
+the PTY size. Repeated identical resize requests are ignored.
+
+F12, Ctrl+B then d or Ctrl+D, and Ctrl+] then d detach from fullscreen sessions.
+Bracketed paste bypasses shortcuts. Split escape sequences are buffered and
+incomplete sequences flush after 50 ms. `--no-escape` forwards every key.
+In the monitor, ↑/↓ switches tasks, Shift+↑/↓ sends application arrows, and
+Esc/F12 returns to the list. Ctrl+F pauses forwarding for search. Enter opens
+fullscreen from the task list.
+
+VT screens are capped at 512×256 cells with about 4 MiB of parser buffering.
+Historical queries and terminal side effects stay offscreen. Live fullscreen
+cursor reports use application coordinates. Palette queries reach the host
+terminal. Monitor device replies are disabled. Manager themes apply to controls, and
+application cells retain their own colors.
 
 See [protocol](protocol.md), [testing](stability.md) and
 [compatibility](compatibility.md).
-
-Session order is a separate private `order.json`, updated under the catalog
-lock. Moves re-read the current order rather than overwriting another frontend's
-stale list. Runtime metadata and existing brokers are unchanged.
-
-Task children inherit `TDOCK_SESSION`. The CLI blocks nested manager, new and
-attach commands. Older sessions are detected through process ancestry and the
-current catalog. Broker/history workers and management commands stay available.

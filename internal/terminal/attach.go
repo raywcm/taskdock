@@ -44,12 +44,8 @@ func CurrentSize(input *os.File) task.Size {
 	return task.Size{Rows: uint16(rows), Cols: uint16(cols)}
 }
 
-// Attach owns a separately opened, pollable tty so cancellation never leaves an
-// orphaned reader competing with the next Bubble Tea program for standard input.
-func Attach(ctx context.Context, state string, record task.Record, input, output *os.File, noEscape bool) (AttachResult, error) {
-	return AttachWithOptions(ctx, state, record, input, output, AttachOptions{NoEscape: noEscape})
-}
-
+// AttachWithOptions opens a separate tty and joins its reader before returning.
+// This prevents it from consuming input intended for the next TUI.
 func AttachWithOptions(ctx context.Context, state string, record task.Record, input, output *os.File, options AttachOptions) (AttachResult, error) {
 	if record.Runtime == nil {
 		return AttachResult{}, errors.New("task has not started")
@@ -430,10 +426,6 @@ func ResetModes(output io.Writer) error {
 
 // Bounded native waits allow cancellation without closing the descriptor
 // before termios has been restored. macOS /dev/tty requires select, not poll.
-func readTTY(ctx context.Context, fd int, p []byte) (int, error) {
-	return readTTYUntil(ctx, fd, p, time.Time{})
-}
-
 func readTTYUntil(ctx context.Context, fd int, p []byte, deadline time.Time) (int, error) {
 	for {
 		if err := ctx.Err(); err != nil {

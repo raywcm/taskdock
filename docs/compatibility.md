@@ -1,6 +1,6 @@
 # Compatibility
 
-Updated: 2026-11-07
+Updated 2026-11-08
 
 ## Platforms
 
@@ -8,12 +8,11 @@ Updated: 2026-11-07
 | --- | --- | --- |
 | macOS arm64 | Tested locally | Core terminal and process regression suites passed. |
 | Ubuntu 24.04.3 LTS arm64 | Tested on a server | Core terminal and process regression suites passed. SSH disconnect/reconnect was also tested. |
-| Linux amd64 | Cross-built | CI results are available in [Actions](https://github.com/raywcm/taskdock/actions). |
-| macOS amd64 | Cross-built | Native Intel Mac testing is pending. |
+| Linux amd64 | Tested in CI and on servers | Full regression suites run in CI. Status-row and nested-session checks passed on servers. |
+| macOS amd64 | Tested on an Intel Mac | Status-row, nested-session and task lifecycle checks passed. |
 | Debian / RPM-based distributions | Package contents checked | Native package-manager install, upgrade and removal tests are pending. |
 
-Builds disable CGO. The minimum Go version is 1.26; local testing used Go 1.26.0.
-Go is not required at runtime.
+Builds disable CGO and require Go 1.26+. Go is not required at runtime.
 
 ## Applications and terminals
 
@@ -23,14 +22,14 @@ Go is not required at runtime.
 | Vim | Unicode editing, detach, reconnect and saving | Plugins and additional terminal extensions |
 | htop | Static screen content after repeated reconnects | Other ncurses applications |
 | Incremental full-screen test program | Static cells, terminal modes and reconnect redraw | Additional VT extensions |
-| Codex 0.164.0-alpha.11.1 / OpenCode 1.18.30 | Startup and mixed-session attach/detach; original PIDs preserved | Interactive workflows, mouse and keyboard behavior |
+| Codex 0.164.0-alpha.11.1 / OpenCode 1.18.30 | Startup, mixed-session reconnect and process identity | Interactive workflows, mouse and keyboard behavior |
 | xterm-256color with a real PTY and pyte decoder | Main/alternate buffers, cursor, Unicode and redraw | GUI terminal behavior |
 | SSH to Ubuntu ARM64 | Lost client connection, reconnect and process identity | Host-specific login-session cleanup policies |
 | Tabby and other GUI terminals | Manual observations and bug reports | Systematic scrollback, selection, clipboard and mouse tests |
 
-The Codex/OpenCode check used six mixed tasks and two attach rounds without
-submitting model requests. OpenCode produced no output during the short direct
-startup check, so its visible startup still needs testing.
+The mixed-task check used six tasks and two attach rounds without submitting
+model requests. Separate captures verified the startup interfaces shown in the
+README.
 
 ## Known limitations
 
@@ -43,13 +42,12 @@ startup check, so its visible startup still needs testing.
   modes and requests a redraw. Retained logs can begin partway through output,
   so reconstructed screens may be incomplete.
 - **Monitoring changes the PTY size.** The preview uses its pane size and retains
-  that size when leaving. Full attach uses the terminal size minus its status row. Occupied
-  or unreachable tasks display “Unable to monitor.” The preview is reconstructed
-  from retained logs and accepts keyboard input immediately. ↑/↓ selects the monitored task and Esc/F12 returns to the list;
-  these keys are reserved in the monitor. Native
-  terminal extensions require `attach --no-status`.
+  that size when leaving. Full attach uses the terminal size minus its status
+  row. Unreachable tasks display “Unable to monitor.” The preview accepts input
+  immediately. ↑/↓ selects a task and Esc/F12 returns to the list. Shift+↑/↓
+  sends ordinary arrow keys to the application.
 - **Connection roles are scoped to one Unix account.** Read-only limits that
-  connection; the same account can open another management client. Shared inputs
+  connection. The same account can open another management client. Shared inputs
   can interfere. The oldest connected controller determines the PTY size.
 - **History has limits.** Stopped records and logs expire after one hour by
   default. Use `tdock settings set history-retention off` to retain them.
@@ -58,7 +56,7 @@ startup check, so its visible startup still needs testing.
   without signalling old PIDs. Descendants that detached from the managed
   session may need manual cleanup after a broker crash.
 - **Existing brokers keep their code after an upgrade.** New tasks use the new
-  executable. Ordinary attach works with protocol-v1 brokers; takeover,
+  executable. Ordinary attach works with protocol-v1 brokers. Takeover,
   read-only and shared modes require v0.3.0 or later.
 - **SIGKILL prevents frontend cleanup.** Normal Ctrl+C/INT/TERM/HUP exits restore
   terminal state. A killed frontend may leave modes that need a terminal reset.
@@ -69,14 +67,15 @@ configuration and recovery procedures.
 ## Coding agents
 
 Codex, Claude Code and OpenCode launch as ordinary terminal commands. No
-agent-specific integration is required. The default fullscreen view and monitor render bounded terminal screens.
+agent-specific integration is required. The default fullscreen view and monitor
+render bounded terminal screens.
 `attach --no-status` forwards native output and input.
 
 The README images show the session list with sampled CPU and memory usage,
 Claude Code 2.1.284 on Linux, and OpenCode 1.18.30 and htop on macOS. The agent
-views show startup and unsent drafts. OpenCode and htop use the split monitor;
+views show startup and unsent drafts. OpenCode and htop use the split monitor.
 Claude Code uses the attached view with the session name and RSS row.
 
 A shared native terminal has one PTY size. Use monitor panes for differently
-sized windows; followers crop the owner’s screen without resizing the program.
+sized windows. Followers crop the owner’s screen without resizing the program.
 The OS or terminal must pass Shift+Up/Down through for those monitor bindings.

@@ -236,7 +236,10 @@ def test_attach(h):
     os.write(fd, b'first\n')
     assert b'ECHO:first' in drain(fd)
     pid2, fd2 = h.spawn_tty('attach', task)
-    wait_output(fd2, b'Shared control')
+    # Drain the initial screen before waiting on the other viewer. A window
+    # title arrives first and can leave the PTY's output buffer full on macOS.
+    second = wait_output(fd2, b'RSS')
+    assert b'Shared control' in second, second
     os.write(fd2, b'from-second\n')
     wait_output(fd, b'ECHO:from-second')
     os.write(fd2, b'\x1b[24~'); drain(fd2)

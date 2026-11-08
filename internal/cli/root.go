@@ -24,7 +24,7 @@ import (
 	"golang.org/x/term"
 )
 
-var Version = "0.8.3-dev"
+var Version = "0.8.4-dev"
 
 type ExitError struct{ Code int }
 

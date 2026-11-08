@@ -22,6 +22,7 @@ def paint(*args):
  size=os.get_terminal_size(0)
  os.write(1, ('\x1b[H\x1b[2J\x1b[38;2;17;153;221mAPP-TITLE\x1b[0m SIZE-%d-%d\x1b[%d;1HBOTTOM-CELL' % (size.lines,size.columns,size.lines)).encode())
  os.write(1, ('\x1b[2;%dHX' % size.columns).encode())
+ os.write(1, ('\x1b]0;查看5090当前训练状态 | codex\a').encode())
 signal.signal(signal.SIGWINCH,paint)
 os.write(1,b'\x1b[?1049h\x1b[?1006h\x1b[?1000h\x1b[?2004h')
 paint()
@@ -30,6 +31,9 @@ while True:
  if b'Q' in data:os.write(1,b'\x1b[3;7H\x1b[6n')
  elif data.endswith(b'R'):
   os.write(1,b'\x1b[5;1HREPLY-'+data.hex().encode())
+ elif data.startswith(b'\x1b[<64;'):
+  paint()
+  os.write(1,b'\x1b[7;1HWHEEL-SEEN')
  elif b'S' in data:
   os.write(1,b'\x1b[?1049l\x1b[r\x1b[2J'+b'LINE\r\n'*60+b'SCROLLED')
  else:paint()
@@ -47,7 +51,10 @@ def check_status(h):
     assert b'SIZE-22-80' not in h.cli('logs', ref).stdout, 'status attach bounced the application dimensions'
     assert terminal.display[1][-1] == 'X', 'rightmost application cell was erased'
     assert terminal.current.buffer[0][0].fg == '1199dd', 'truecolor changed'
-    assert 'MiB' in ''.join(terminal.display) or 'KiB' in ''.join(terminal.display)
+    wait_view(fd, terminal, lambda text: 'MiB' in text or 'KiB' in text or 'GiB' in text, timeout=15)
+    os.write(fd, b'\x1b[<64;5;5M' * 6)
+    wait_view(fd, terminal, lambda text: 'WHEEL-SEEN' in text)
+    assert 'codex' not in ''.join(terminal.display), 'Unicode window title leaked into the prompt after scrolling'
     os.write(fd, b'Q')
     wait_view(fd, terminal, lambda text: 'REPLY-1b5b333b3752' in text)
     h.cli('rename', ref, 'renamed-work')

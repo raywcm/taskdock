@@ -11,7 +11,9 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 def expected_files(go):
     modules = {}
-    template = '{{if .Module}}{{.Module.Path}}|{{.Module.Version}}|{{.Module.Dir}}{{end}}'
+    template = ('{{if .Module}}{{if .Module.Replace}}'
+                '{{.Module.Replace.Path}}|{{.Module.Replace.Version}}|{{.Module.Replace.Dir}}'
+                '{{else}}{{.Module.Path}}|{{.Module.Version}}|{{.Module.Dir}}{{end}}{{end}}')
     for target in ('linux', 'darwin'):
         env = dict(os.environ, GOOS=target, GOARCH='amd64', CGO_ENABLED='0')
         output = subprocess.check_output([go, 'list', '-deps', '-f', template, './cmd/tdock'], cwd=ROOT, env=env, text=True)

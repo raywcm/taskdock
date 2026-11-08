@@ -77,3 +77,15 @@ func TestStatusScreenHistoricalQueriesNeverReachProcess(t *testing.T) {
 		t.Fatal("lost live palette query")
 	}
 }
+
+func TestStatusScreenUnicodeTitleDoesNotPrint(t *testing.T) {
+	s := newStatusScreen(task.Size{Cols: 80, Rows: 24}, task.Spec{Name: "test"}, nil)
+	defer s.close()
+	if err := s.feed([]byte("prompt> \x1b]0;查看5090当前训练状态 | codex\a")); err != nil {
+		t.Fatal(err)
+	}
+	rows := vtscreen.Rows(s.e)
+	if got := strings.TrimSpace(ansi.Strip(rows[0])); got != "prompt>" {
+		t.Fatalf("window title leaked onto the application screen: %q", got)
+	}
+}

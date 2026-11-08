@@ -17,7 +17,6 @@ tools are not linked into TaskDock. Regenerate after changing Go dependencies;
 | `github.com/atotto/clipboard` | `v0.1.4` | [LICENSE](licenses/github.com_atotto_clipboard@v0.1.4/LICENSE) |
 | `github.com/charmbracelet/colorprofile` | `v0.4.3` | [LICENSE](licenses/github.com_charmbracelet_colorprofile@v0.4.3/LICENSE) |
 | `github.com/charmbracelet/ultraviolet` | `v0.0.0-20261008173134-6b8d4baf91b4` | [LICENSE](licenses/github.com_charmbracelet_ultraviolet@v0.0.0-20261008173134-6b8d4baf91b4/LICENSE) |
-| `github.com/charmbracelet/x/ansi` | `v0.11.9` | [LICENSE](licenses/github.com_charmbracelet_x_ansi@v0.11.9/LICENSE) |
 | `github.com/charmbracelet/x/exp/ordered` | `v0.1.0` | [LICENSE](licenses/github.com_charmbracelet_x_exp_ordered@v0.1.0/LICENSE) |
 | `github.com/charmbracelet/x/term` | `v0.2.2` | [LICENSE](licenses/github.com_charmbracelet_x_term@v0.2.2/LICENSE) |
 | `github.com/charmbracelet/x/termios` | `v0.1.1` | [LICENSE](licenses/github.com_charmbracelet_x_termios@v0.1.1/LICENSE) |
@@ -26,6 +25,7 @@ tools are not linked into TaskDock. Regenerate after changing Go dependencies;
 | `github.com/clipperhouse/displaywidth` | `v0.11.0` | [LICENSE](licenses/github.com_clipperhouse_displaywidth@v0.11.0/LICENSE) |
 | `github.com/clipperhouse/uax29/v2` | `v2.7.0` | [LICENSE](licenses/github.com_clipperhouse_uax29_v2@v2.7.0/LICENSE) |
 | `github.com/creack/pty` | `v1.1.24` | [LICENSE](licenses/github.com_creack_pty@v1.1.24/LICENSE) |
+| `github.com/dlorenc/x/ansi` | `v0.11.10-0.20261011061138-18eba1728ee7` | [LICENSE](licenses/github.com_dlorenc_x_ansi@v0.11.10-0.20261011061138-18eba1728ee7/LICENSE) |
 | `github.com/lucasb-eyer/go-colorful` | `v1.4.1` | [LICENSE](licenses/github.com_lucasb-eyer_go-colorful@v1.4.1/LICENSE) |
 | `github.com/mattn/go-runewidth` | `v0.0.30` | [LICENSE](licenses/github.com_mattn_go-runewidth@v0.0.30/LICENSE) |
 | `github.com/muesli/cancelreader` | `v0.2.2` | [LICENSE](licenses/github.com_muesli_cancelreader@v0.2.2/LICENSE) |

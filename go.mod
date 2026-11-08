@@ -33,3 +33,7 @@ require (
 	github.com/xo/terminfo v1.0.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 )
+
+// UTF-8 control-string fix pending upstream release.
+// https://github.com/charmbracelet/x/pull/1008
+replace github.com/charmbracelet/x/ansi => github.com/dlorenc/x/ansi v0.11.10-0.20261011061138-18eba1728ee7

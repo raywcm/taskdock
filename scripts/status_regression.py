@@ -92,7 +92,7 @@ def check_status(h):
     os.write(native_fd, b'\x1b[24~')
     assert h.join(native) == 0
     h.cli('stop', ref)
-    print('PASS fixed footer, RSS, rename, colors, cursor queries, resize, readonly crop, scrolling, detach and task identity', flush=True)
+    print('PASS Unicode titles during wheel redraw, fixed footer, RSS, rename, colors, cursor queries, resize, readonly crop, scrolling, detach and task identity', flush=True)
 
 
 def check_nesting(h):

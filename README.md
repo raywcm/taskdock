@@ -1,5 +1,28 @@
 # TaskDock
 
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <strong>Codex</strong><br>
+      <img src="docs/assets/codex.png" width="100%" alt="Codex in TaskDock's split monitor with eight running sessions">
+    </td>
+    <td width="50%" align="center">
+      <strong>Claude Code</strong><br>
+      <img src="docs/assets/claude.png" width="100%" alt="Claude Code with TaskDock's session name and memory status row">
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <strong>OpenCode</strong><br>
+      <img src="docs/assets/opencode.png" width="100%" alt="OpenCode in TaskDock's split monitor">
+    </td>
+    <td width="50%" align="center">
+      <strong>htop</strong><br>
+      <img src="docs/assets/htop.png" width="100%" alt="htop monitoring real processes in TaskDock">
+    </td>
+  </tr>
+</table>
+
 Keep terminal programs running after you close the terminal or lose SSH.
 Reconnect from a task list, monitor output, or share control from another
 terminal. Linux and macOS, one binary.
@@ -8,8 +31,6 @@ Use it for shells, editors, development servers and long-running commands.
 Coding agents such as **Codex, Claude Code and OpenCode** work the same way:
 they run as their native CLI programs, with their own interface. No plugins,
 wrappers or tmux setup.
-
-![Codex in TaskDock's split monitor with eight running sessions](docs/assets/codex.png)
 
 ## Install
 
@@ -121,19 +142,7 @@ Host-terminal scrollback belongs to that terminal. Monitoring
 shares input across terminals. The oldest controller owns the PTY size; other
 monitors fit that screen into their panes without resizing the application.
 
-## Screenshots
-
-### Claude Code
-
-![Claude Code with TaskDock's session name and memory status row](docs/assets/claude.png)
-
-### OpenCode
-
-![OpenCode in TaskDock's split monitor](docs/assets/opencode.png)
-
-### htop
-
-![htop monitoring real processes in TaskDock](docs/assets/htop.png)
+## Documentation
 
 - [Usage](docs/usage.md) · [Compatibility](docs/compatibility.md)
 - [Build and packaging](docs/installation.md) · [Testing](docs/stability.md)

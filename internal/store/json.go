@@ -128,6 +128,7 @@ func (s *JSON) List(ctx context.Context) ([]task.Record, error) {
 		return nil, err
 	}
 	records := make([]task.Record, 0, len(entries))
+	var corrupt []string
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -144,7 +145,11 @@ func (s *JSON) List(ctx context.Context) ([]task.Record, error) {
 			continue
 		}
 		if err != nil {
-			return nil, fmt.Errorf("load task %s: %w", id, err)
+			// One unreadable task must not take the whole listing down: a
+			// half-written spec.json would otherwise leave every command,
+			// including delete, failing with no way to clean up.
+			corrupt = append(corrupt, fmt.Sprintf("%s: %v", id, err))
+			continue
 		}
 		records = append(records, record)
 	}
@@ -154,6 +159,9 @@ func (s *JSON) List(ctx context.Context) ([]task.Record, error) {
 		}
 		return records[i].Spec.CreatedAt.Before(records[j].Spec.CreatedAt)
 	})
+	for _, problem := range corrupt {
+		fmt.Fprintf(os.Stderr, "TaskDock: skipping unreadable task %s\n", problem)
+	}
 	return records, s.applyOrder(records)
 }
 

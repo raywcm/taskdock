@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -311,6 +312,19 @@ func (m *Manager) Delete(ctx context.Context, ref string) error {
 	defer unlock()
 	r, err := m.Resolve(ctx, ref)
 	if err != nil {
+		// A record whose spec.json is unreadable never reaches Resolve, so it
+		// could never be deleted. Accept an exact task ID for that case only,
+		// still refusing while a broker holds the lock.
+		if id := task.ID(ref); id.Validate() == nil {
+			if _, statErr := os.Stat(filepath.Join(m.Store.Root(), "tasks", string(id))); statErr == nil {
+				release, lockErr := m.Store.BrokerLock(id)
+				if lockErr != nil {
+					return errors.New("task broker is still alive; stop it before deleting")
+				}
+				release()
+				return m.Store.Remove(ctx, id)
+			}
+		}
 		return err
 	}
 	release, err := m.Store.BrokerLock(r.Spec.ID)

@@ -116,10 +116,20 @@ func (s *JSON) Rename(ctx context.Context, id task.ID, name string) error {
 
 // Remove requires the catalog and broker locks. IDs are never reused.
 func (s *JSON) Remove(ctx context.Context, id task.ID) error {
-	if _, err := s.Load(ctx, id); err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	dir, _ := s.taskDir(id)
+	dir, err := s.taskDir(id)
+	if err != nil {
+		return err
+	}
+	// Removal must succeed for an unreadable record too. Loading first would
+	// leave a corrupt spec.json undeletable, which is exactly the state a
+	// partial write produces. Existence of the directory is still required so
+	// that deleting an unknown ID keeps reporting ErrNotExist.
+	if _, statErr := os.Stat(dir); statErr != nil {
+		return statErr
+	}
 	return os.RemoveAll(dir)
 }
 

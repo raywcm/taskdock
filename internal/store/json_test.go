@@ -78,6 +78,52 @@ func TestRecordRoundTripAndPermissions(t *testing.T) {
 	}
 }
 
+func TestCatalogLoadsLegacyNamesAndEnforcesRulesOnWrites(t *testing.T) {
+	for _, oldName := range []string{"-legacy", "old\u200btask", "👩\u200d💻"} {
+		t.Run(oldName, func(t *testing.T) {
+			ctx := context.Background()
+			s, ordinary := fixture(t)
+			legacy := ordinary
+			id, err := task.NewID()
+			if err != nil {
+				t.Fatal(err)
+			}
+			legacy.ID, legacy.Name = id, "legacy"
+			if err := s.Create(ctx, legacy); err != nil {
+				t.Fatal(err)
+			}
+			// Simulate a spec persisted before the new name restrictions.
+			legacy.Name = oldName
+			path, err := s.Path(id, "spec.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := writeJSON(path, legacy); err != nil {
+				t.Fatal(err)
+			}
+
+			records, err := s.List(ctx)
+			if err != nil || len(records) != 2 {
+				t.Fatalf("list with a legacy name: %d records, %v", len(records), err)
+			}
+			record, err := s.Load(ctx, id)
+			if err != nil || record.Spec.Name != oldName {
+				t.Fatalf("load legacy name: %q, %v", record.Spec.Name, err)
+			}
+			if err := s.Rename(ctx, ordinary.ID, oldName); err == nil {
+				t.Fatal("rename accepted a name prohibited for new writes")
+			}
+			if err := s.Rename(ctx, id, "renamed"); err != nil {
+				t.Fatal(err)
+			}
+			record, err = s.Load(ctx, id)
+			if err != nil || record.Spec.Name != "renamed" {
+				t.Fatalf("load after rename: %q, %v", record.Spec.Name, err)
+			}
+		})
+	}
+}
+
 func TestAtomicRuntimeSnapshots(t *testing.T) {
 	s, spec := fixture(t)
 	instance, _ := task.NewID()

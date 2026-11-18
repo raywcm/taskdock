@@ -13,6 +13,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/raywcm/taskdock/internal/config"
@@ -121,23 +122,35 @@ func (m *Manager) Resolve(ctx context.Context, ref string) (task.Record, error) 
 	if err != nil {
 		return task.Record{}, err
 	}
-	for _, r := range records {
-		if r.Spec.Name == ref {
-			return r, nil
+	var byName *task.Record
+	for i := range records {
+		if records[i].Spec.Name == ref {
+			byName = &records[i]
+			break
 		}
 	}
-	var matches []task.Record
+	var byPrefix []task.Record
 	if len(ref) >= 4 {
 		for _, r := range records {
 			if strings.HasPrefix(string(r.Spec.ID), ref) {
-				matches = append(matches, r)
+				byPrefix = append(byPrefix, r)
 			}
 		}
 	}
-	if len(matches) == 1 {
-		return matches[0], nil
+	// A task named exactly like another task's ID prefix must not silently
+	// shadow it. Previously the name won, so a prefix lookup could resolve to
+	// the wrong task with no warning.
+	if byName != nil && len(byPrefix) > 0 && byPrefix[0].Spec.ID != byName.Spec.ID {
+		return task.Record{}, fmt.Errorf("reference %q matches task name %q and also the ID prefix of %s; use the full ID",
+			ref, byName.Spec.Name, byPrefix[0].Spec.ID)
 	}
-	if len(matches) > 1 {
+	if byName != nil {
+		return *byName, nil
+	}
+	if len(byPrefix) == 1 {
+		return byPrefix[0], nil
+	}
+	if len(byPrefix) > 1 {
 		return task.Record{}, errors.New("ambiguous task ID prefix")
 	}
 	return task.Record{}, fmt.Errorf("task %q not found", ref)
@@ -370,6 +383,47 @@ func (m *Manager) retireOrphan(ctx context.Context, id task.ID) (task.Record, er
 	return m.Store.RetireOrphan(ctx, id, time.Now())
 }
 
+// readTail returns at most limit bytes from the end of path, without loading
+// the whole file. A limit of zero reads everything. Seeking into the middle of
+// a multi-byte UTF-8 sequence is corrected by skipping the partial rune.
+func readTail(path string, size int64, limit int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	start := int64(0)
+	if limit > 0 && size > limit {
+		// Back up a few bytes so a split rune can be detected and dropped.
+		start = size - limit - 4
+		if start < 0 {
+			start = 0
+		}
+	}
+	if start > 0 {
+		if _, err := f.Seek(start, io.SeekStart); err != nil {
+			return nil, err
+		}
+	}
+	buf := make([]byte, size-start)
+	if _, err := io.ReadFull(f, buf); err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	if start > 0 {
+		// Drop a leading partial rune and the extra look-behind bytes.
+		for len(buf) > int(limit) && !utf8.RuneStart(buf[0]) {
+			buf = buf[1:]
+		}
+		if int64(len(buf)) > limit {
+			buf = buf[int64(len(buf))-limit:]
+			for len(buf) > 0 && !utf8.RuneStart(buf[0]) {
+				buf = buf[1:]
+			}
+		}
+	}
+	return buf, nil
+}
+
 func (m *Manager) Logs(ctx context.Context, ref string, raw bool, tail int) ([]byte, error) {
 	if tail < 0 {
 		return nil, errors.New("tail must be non-negative")
@@ -378,9 +432,18 @@ func (m *Manager) Logs(ctx context.Context, ref string, raw bool, tail int) ([]b
 	if err != nil {
 		return nil, err
 	}
-	var data []byte
+	// The oldest file is read first so the concatenation stays chronological.
+	type part struct {
+		path string
+		size int64
+	}
+	var parts []part
+	var total int64
 	for _, name := range []string{"output.log.1", "output.log"} {
-		file, _ := m.Store.Path(r.Spec.ID, name)
+		file, pathErr := m.Store.Path(r.Spec.ID, name)
+		if pathErr != nil {
+			return nil, pathErr
+		}
 		info, err := os.Lstat(file)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
@@ -391,20 +454,43 @@ func (m *Manager) Logs(ctx context.Context, ref string, raw bool, tail int) ([]b
 		if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
 			return nil, errors.New("unsafe output log")
 		}
-		part, err := os.ReadFile(file)
+		parts = append(parts, part{file, info.Size()})
+		total += info.Size()
+	}
+	// Only the newest files can contribute to a bounded tail; skip older ones
+	// entirely instead of reading them and discarding the bytes.
+	want := int64(tail)
+	var data []byte
+	for i := len(parts) - 1; i >= 0; i-- {
+		p := parts[i]
+		if want > 0 && data != nil && int64(len(data)) >= want {
+			break
+		}
+		limit := want
+		if limit == 0 {
+			limit = 0 // read fully
+		} else if limit > p.size {
+			limit = 0
+		}
+		chunk, err := readTail(p.path, p.size, limit)
 		if err != nil {
 			return nil, err
 		}
-		data = append(data, part...)
+		// Prepend: this part is older than what we already collected.
+		data = append(chunk, data...)
 	}
+	_ = total
 	if tail > 0 && len(data) > tail {
 		data = data[len(data)-tail:]
+		for len(data) > 0 && !utf8.RuneStart(data[0]) {
+			data = data[1:]
+		}
 	}
 	if !raw {
 		data = []byte(ansi.Strip(string(data)))
 		clean := make([]byte, 0, len(data))
 		for _, b := range data {
-			if b >= 32 || b == '\n' || b == '\r' || b == '\t' {
+			if b >= 32 || b == '\n' || b == '\r' || b == '	' {
 				clean = append(clean, b)
 			}
 		}

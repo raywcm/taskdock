@@ -64,7 +64,15 @@ func memory(bytes uint64) string {
 	if bytes >= 1<<20 {
 		return fmt.Sprintf("%.0f MiB", float64(bytes)/(1<<20))
 	}
-	return fmt.Sprintf("%d KiB", bytes/1024)
+	if bytes >= 1<<10 {
+		return fmt.Sprintf("%.0f KiB", float64(bytes)/(1<<10))
+	}
+	// A live process is never exactly zero; reporting "0 KiB" hides a real
+	// value and makes an idle-but-alive task look like it uses no memory.
+	if bytes == 0 {
+		return "0 B"
+	}
+	return fmt.Sprintf("%d B", bytes)
 }
 func displayPath(dir string) string {
 	home, err := os.UserHomeDir()

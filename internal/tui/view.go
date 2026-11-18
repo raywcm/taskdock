@@ -449,6 +449,9 @@ func (m model) View() tea.View {
 	}
 	view := tea.NewView(content)
 	view.AltScreen = true
+	if showMonitor && m.mode == "" && m.monitorFrame.Scrollable && m.monitorFrame.Err == nil {
+		view.MouseMode = tea.MouseModeCellMotion
+	}
 	if m.monitoring && m.mode == "" && m.monitorFrame.Ready && m.monitorFrame.Err == nil && !m.monitorFrame.CursorHidden {
 		left, right, height := m.monitorGeometry()
 		if m.monitorFrame.CursorX < right && m.monitorFrame.CursorY < height {

@@ -85,6 +85,7 @@ func AttachWithOptions(ctx context.Context, state string, record task.Record, in
 			}
 			return session.Send(frame)
 		})
+		display.noScroll = options.NoEscape
 		defer display.close()
 		if err := display.replay(ctx, repository.Root(), record.Spec.ID); err != nil {
 			return AttachResult{}, err
@@ -207,6 +208,9 @@ func AttachWithOptions(ctx context.Context, state string, record task.Record, in
 
 		wg.Go(func() {
 			decoder := EscapeDecoder{Disable: options.NoEscape}
+			if display != nil {
+				decoder.Transform = display.mouseInput
+			}
 			buf := make([]byte, 32*1024)
 			var deadline time.Time
 			for {
@@ -420,7 +424,7 @@ func AttachWithOptions(ctx context.Context, state string, record task.Record, in
 }
 
 func ResetModes(output io.Writer) error {
-	_, err := io.WriteString(output, "\x1b[0m\x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l\x1b[?1004l\x1b[?2004l\x1b[?1l\x1b>\x1b[4l\x1b[?7h\x1b[<u\x1b[>4;0m\x1b[?1049l\x1b[0 q\x1b[?25h")
+	_, err := io.WriteString(output, "\x1b[0m\x1b[?9l\x1b[?1000l\x1b[?1001l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l\x1b[?1004l\x1b[?2004l\x1b[?1l\x1b>\x1b[4l\x1b[?7h\x1b[<u\x1b[>4;0m\x1b[?1049l\x1b[0 q\x1b[?25h")
 	return err
 }
 

@@ -89,3 +89,30 @@ func TestStatusScreenUnicodeTitleDoesNotPrint(t *testing.T) {
 		t.Fatalf("window title leaked onto the application screen: %q", got)
 	}
 }
+
+func TestApplicationMouseModeTakesOverFromScrollback(t *testing.T) {
+	s := newStatusScreen(task.Size{Cols: 20, Rows: 4}, task.Spec{Name: "inline"}, nil)
+	defer s.close()
+	if err := s.feed([]byte("one\r\ntwo\r\nthree\r\nfour")); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	s.updateMouse(&out)
+	wheel := []byte("\x1b[<64;4;2M")
+	if got := s.mouseInput(wheel); got != nil || !s.viewport.Scrolled() {
+		t.Fatal("wheel did not scroll the inline viewport")
+	}
+	if err := s.feed([]byte("\x1b[?1006h\x1b[?1002h")); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	s.updateMouse(&out)
+	if !strings.Contains(out.String(), ansi.ResetModeMouseNormal) ||
+		!strings.Contains(out.String(), ansi.SetModeMouseButtonEvent) ||
+		strings.Contains(out.String(), ansi.ResetModeMouseExtSgr) {
+		t.Fatalf("wrong transition to application mouse tracking: %q", out.String())
+	}
+	if got := s.mouseInput(wheel); string(got) != string(wheel) || s.viewport.Scrolled() {
+		t.Fatal("application wheel event was intercepted")
+	}
+}

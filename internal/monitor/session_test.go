@@ -21,7 +21,7 @@ func TestOffscreenEmulationStylesCJKAndAlternateScreen(t *testing.T) {
 	_, _ = e.Write([]byte("SHELL\r\n"))
 	_, _ = e.Write([]byte("\x1b[?1049h\x1b[2J\x1b[H\x1b[31m标题\x1b[3;1HSTATIC\x1b[5;1Hcounter:1"))
 	_, _ = e.Write([]byte("\x1b[5;9H2"))
-	frame := screenFrame(e)
+	frame := screenFrame(e, nil)
 	if !frame.Alternate || !strings.Contains(ansi.Strip(frame.Rows[0]), "标题") || !strings.Contains(ansi.Strip(frame.Rows[2]), "STATIC") || !strings.Contains(ansi.Strip(frame.Rows[4]), "counter:2") {
 		t.Fatalf("screen was not reconstructed: %#v", frame.Rows)
 	}
@@ -31,7 +31,7 @@ func TestOffscreenEmulationStylesCJKAndAlternateScreen(t *testing.T) {
 		}
 	}
 	_, _ = e.Write([]byte("\x1b[?1049l"))
-	if got := screenFrame(e); got.Alternate || !strings.Contains(ansi.Strip(got.Rows[0]), "SHELL") {
+	if got := screenFrame(e, nil); got.Alternate || !strings.Contains(ansi.Strip(got.Rows[0]), "SHELL") {
 		t.Fatal("normal buffer was lost")
 	}
 }
@@ -48,7 +48,7 @@ func TestQueriesAndOSCStayInsideEmulator(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("device query blocked the preview")
 	}
-	frame := screenFrame(e)
+	frame := screenFrame(e, nil)
 	for _, row := range frame.Rows {
 		if strings.Contains(row, "\x1b]") || strings.Contains(row, "HOST-TITLE") || strings.Contains(row, "SECRET") || strings.Contains(row, "\x1b[6n") {
 			t.Fatalf("unsafe terminal commands escaped the virtual screen: %q", row)
@@ -122,7 +122,7 @@ func TestHistoricalMarginsOutsidePreviewStayWithinScreen(t *testing.T) {
 				}
 			}
 			e.Write([]byte("\x1b[?69l\x1b[r\x1b[HSTILL-RENDERING"))
-			frame := screenFrame(e)
+			frame := screenFrame(e, nil)
 			if !strings.Contains(ansi.Strip(frame.Rows[0]), "STILL-RENDERING") {
 				t.Fatal("invalid margin poisoned the screen")
 			}
@@ -133,7 +133,7 @@ func TestHistoricalMarginsOutsidePreviewStayWithinScreen(t *testing.T) {
 	e := newScreen(20, 6)
 	defer e.Close()
 	e.Write([]byte("\x1b[1;1HTOP\x1b[2;1HSECOND\x1b[2;4r\x1b[2;1H\x1bM"))
-	f := screenFrame(e)
+	f := screenFrame(e, nil)
 	if !strings.Contains(f.Rows[0], "TOP") || !strings.Contains(f.Rows[2], "SECOND") {
 		t.Fatal("valid scroll region was changed")
 	}
@@ -191,7 +191,7 @@ func TestReplayLogFromEnvironment(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		frame := screenFrame(e)
+		frame := screenFrame(e, nil)
 		e.Close()
 		if !frame.Ready || frame.Width != int(size.Cols) || frame.Height != int(size.Rows) {
 			t.Fatal("replay did not produce a bounded screen")

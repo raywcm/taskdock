@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"image"
 	"os"
 	"sync"
 	"time"
@@ -11,6 +12,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/raywcm/taskdock/internal/monitor"
 	"github.com/raywcm/taskdock/internal/terminal"
+	"github.com/raywcm/taskdock/internal/vtscreen"
 )
 
 type monitorAction struct {
@@ -30,6 +32,7 @@ type monitorInput struct {
 	mu                     sync.Mutex
 	enabled, armed, closed bool
 	target                 *monitor.Session
+	scrollArea             image.Rectangle
 	pending                []byte
 	decoder                terminal.EscapeDecoder
 	timer                  *time.Timer
@@ -56,7 +59,7 @@ func (r *monitorInput) resetLocked() {
 		}
 		r.commands = append(r.commands, command)
 		return true
-	}, Ignore: monitorIgnoredKey, Transform: monitorApplicationKey, Report: func(raw []byte) bool {
+	}, Ignore: monitorIgnoredKey, Transform: r.monitorInputKey, Report: func(raw []byte) bool {
 		if len(raw) < 3 || raw[0] != 0x1b || raw[1] != ']' {
 			return false
 		}
@@ -71,6 +74,26 @@ func (r *monitorInput) resetLocked() {
 		return false
 	}}
 	r.commands = nil
+}
+
+func (r *monitorInput) SetScrollArea(left, top, right, bottom int) {
+	r.mu.Lock()
+	r.scrollArea = image.Rect(left, top, right, bottom)
+	r.mu.Unlock()
+}
+
+func (r *monitorInput) monitorInputKey(raw []byte) []byte {
+	if r.target != nil {
+		if x, y, lines, ok := vtscreen.ScrollMouse(raw); ok {
+			if !image.Pt(x, y).In(r.scrollArea) {
+				lines = 0
+			}
+			if r.target.Scroll(lines) {
+				return nil
+			}
+		}
+	}
+	return monitorApplicationKey(raw)
 }
 func (r *monitorInput) Arm(armed bool) { r.mu.Lock(); r.armed = armed; r.mu.Unlock() }
 func (r *monitorInput) Begin() {

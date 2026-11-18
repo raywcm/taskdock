@@ -5,9 +5,12 @@ import (
 	"strings"
 	"unicode"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 )
+
+const ScrollbackLimit = 1000
 
 func New(width, height int) *vt.Emulator {
 	e := vt.NewEmulator(width, height)
@@ -25,48 +28,52 @@ func New(width, height int) *vt.Emulator {
 		right, _, _ := params.Param(1, e.Width())
 		return left > e.Width() || right > e.Width()
 	})
-	e.SetScrollbackSize(0)
+	e.SetScrollbackSize(ScrollbackLimit)
 	return e
 }
 func Rows(e *vt.Emulator) []string {
 	rows := make([]string, e.Height())
 	for y := 0; y < e.Height(); y++ {
-		var line strings.Builder
-		style := ""
-		for x := 0; x < e.Width(); x++ {
-			cell := e.CellAt(x, y)
-			if cell == nil {
-				if style != "" {
-					line.WriteString("\x1b[0m")
-					style = ""
-				}
-				line.WriteByte(' ')
-				continue
-			}
-			if cell.Width == 0 {
-				continue
-			}
-			next := cell.Style.String()
-			if next != style {
-				line.WriteString("\x1b[0m")
-				line.WriteString(next)
-				style = next
-			}
-			// Only generated SGR plus printable cell content leave this renderer.
-			// OSC title/clipboard/hyperlinks, DCS and terminal queries stay in the emulator.
-			content := strings.Map(func(r rune) rune {
-				if unicode.IsControl(r) {
-					return -1
-				}
-				return r
-			}, cell.Content)
-			if content == "" {
-				content = " "
-			}
-			line.WriteString(content)
-		}
-		line.WriteString("\x1b[0m")
-		rows[y] = line.String()
+		rows[y] = renderRow(e.Width(), func(x int) *uv.Cell { return e.CellAt(x, y) })
 	}
 	return rows
+}
+
+func renderRow(width int, at func(int) *uv.Cell) string {
+	var line strings.Builder
+	style := ""
+	for x := range width {
+		cell := at(x)
+		if cell == nil {
+			if style != "" {
+				line.WriteString("\x1b[0m")
+				style = ""
+			}
+			line.WriteByte(' ')
+			continue
+		}
+		if cell.Width == 0 {
+			continue
+		}
+		next := cell.Style.String()
+		if next != style {
+			line.WriteString("\x1b[0m")
+			line.WriteString(next)
+			style = next
+		}
+		// Only generated SGR plus printable cell content leave this renderer.
+		// OSC title/clipboard/hyperlinks, DCS and terminal queries stay in the emulator.
+		content := strings.Map(func(r rune) rune {
+			if unicode.IsControl(r) {
+				return -1
+			}
+			return r
+		}, cell.Content)
+		if content == "" {
+			content = " "
+		}
+		line.WriteString(content)
+	}
+	line.WriteString("\x1b[0m")
+	return line.String()
 }

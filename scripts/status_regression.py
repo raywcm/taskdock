@@ -88,8 +88,8 @@ def check_status(harness):
     terminal.alt.resize(lines=30, columns=100)
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
     os.kill(pid, signal.SIGWINCH)
-    wait_view(fd, terminal, lambda text: "SIZE-29-100" in text)
-    assert "renamed-work" in terminal.display[-1] and "BOTTOM-CELL" in terminal.display[-2]
+    wait_view(fd, terminal, lambda text: "SIZE-29-100" in text
+              and "renamed-work" in terminal.display[-1] and "BOTTOM-CELL" in terminal.display[-2])
     # A small follower crops the existing screen and keeps its own footer.
     follower, follower_fd = harness.spawn_tty("attach", ref, "-r")
     follow_screen = Terminal()
@@ -117,6 +117,51 @@ def check_status(harness):
     assert harness.join(native) == 0
     harness.cli("stop", ref)
     print("PASS fullscreen status, Unicode titles, resize and reconnect", flush=True)
+
+def check_scrollback(harness):
+    inline = r"""
+import os
+import signal
+import tty
+tty.setraw(0)
+signal.signal(signal.SIGWINCH, lambda *_: os.write(1, b"\r\nINLINE-PROMPT"))
+for i in range(75):
+    os.write(1, f"Earlier row {i:03d}\r\n".encode())
+os.write(1, b"INLINE-PROMPT")
+while True:
+    data = os.read(0, 4096)
+    if not data:
+        break
+    os.write(1, b"\r\nAPPLICATION-INPUT:" + data.hex().encode())
+"""
+    ref = harness.create("inline-agent", sys.executable, "-c", inline)
+    until(lambda: b"INLINE-PROMPT" in harness.cli("logs", ref).stdout)
+    for monitor in (False, True):
+        args = () if monitor else ("attach", "--read-only", ref)
+        pid, fd = harness.spawn_tty(*args)
+        terminal = Terminal()
+        if monitor:
+            wait_view(fd, terminal, lambda text: "inline-agent" in text)
+            os.write(fd, b"v")
+        reporting = 1002 if monitor else 1000
+        live_marker = "Earlier row 060" if monitor else "INLINE-PROMPT"
+        wait_view(fd, terminal, lambda text: live_marker in text
+                  and reporting << 5 in terminal.current.mode
+                  and 1006 << 5 in terminal.current.mode)
+        os.write(fd, b"\x1b[<64;30;8M" * 30)
+        wait_view(fd, terminal, lambda text: "Earlier row 000" in text
+                  and live_marker not in text)
+        os.write(fd, b"\x1b[<65;30;8M" * 30)
+        wait_view(fd, terminal, lambda text: live_marker in text
+                  and "Earlier row 000" not in text)
+        os.write(fd, b"\x1b[24~")
+        if monitor:
+            wait_view(fd, terminal, lambda text: "Control" not in text and "inline-agent" in text)
+            os.write(fd, b"q")
+        assert harness.join(pid) == 0
+    assert b"APPLICATION-INPUT:" not in harness.cli("logs", ref).stdout
+    harness.cli("stop", ref)
+    print("PASS inline app scrollback in read-only fullscreen and monitor without injecting wheel input", flush=True)
 
 
 def check_nesting(harness):
@@ -176,6 +221,7 @@ def main():
             harness.cli("settings", "set", "language", "en")
             harness.cli("settings", "set", "history-retention", "off")
             check_status(harness)
+            check_scrollback(harness)
             check_nesting(harness)
         finally:
             harness.cleanup()

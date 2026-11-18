@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 	"github.com/raywcm/taskdock/internal/ipc"
 	"github.com/raywcm/taskdock/internal/protocol"
@@ -27,6 +28,7 @@ type Frame struct {
 	Width, Height, CursorX, CursorY int
 	CursorHidden                    bool
 	Alternate                       bool
+	Scrollable                      bool
 	Ready, Ended                    bool
 	Err                             error
 }
@@ -38,6 +40,9 @@ type Session struct {
 	resize     chan task.Size
 	connection *ipc.Session
 	connected  chan struct{}
+	scroll     int
+	viewport   vtscreen.Viewport
+	mouse      vtscreen.MouseModes
 }
 
 var ErrEmulation = errors.New("terminal preview parser failed")
@@ -110,6 +115,17 @@ func (s *Session) Input(data []byte) error {
 }
 func (s *Session) Close() { s.cancel(); <-s.done }
 
+// Scroll queues a local viewport change without sending input to the task.
+func (s *Session) Scroll(lines int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.frame.Scrollable || s.frame.Err != nil || s.frame.Ended {
+		return false
+	}
+	s.scroll = min(vtscreen.ScrollbackLimit, max(-vtscreen.ScrollbackLimit, s.scroll+lines))
+	return true
+}
+
 func dimensions(size task.Size) (int, int) {
 	if size.Validate() != nil {
 		return 80, 24
@@ -124,13 +140,22 @@ func newScreen(width, height int) *vt.Emulator {
 	}
 	return e
 }
-func screenFrame(e *vt.Emulator) Frame {
-	return Frame{Rows: vtscreen.Rows(e), Width: e.Width(), Height: e.Height(), CursorX: e.CursorPosition().X, CursorY: e.CursorPosition().Y, CursorHidden: e.CursorHidden(), Alternate: e.IsAltScreen(), Ready: true}
+func screenFrame(e *vt.Emulator, viewport *vtscreen.Viewport) Frame {
+	return Frame{Rows: viewport.Rows(e), Width: e.Width(), Height: e.Height(), CursorX: e.CursorPosition().X, CursorY: e.CursorPosition().Y, CursorHidden: e.CursorHidden() || viewport.Scrolled(), Alternate: e.IsAltScreen(), Ready: true}
 }
 func (s *Session) publish(e *vt.Emulator, err error, ended bool) {
-	frame := screenFrame(e)
-	frame.Err = err
-	frame.Ended = ended
+	scrollable := !e.IsAltScreen() && s.mouse.Tracking == 0 && e.ScrollbackLen() > 0
+	s.mu.Lock()
+	lines := s.scroll
+	s.scroll = 0
+	s.mu.Unlock()
+	if scrollable {
+		s.viewport.Scroll(e, lines)
+	} else {
+		s.viewport.Reset()
+	}
+	frame := screenFrame(e, &s.viewport)
+	frame.Err, frame.Ended, frame.Scrollable = err, ended, scrollable
 	s.mu.Lock()
 	s.frame = frame
 	s.mu.Unlock()
@@ -201,6 +226,15 @@ func (s *Session) run(ctx context.Context, repository *store.JSON, r task.Record
 	}
 	e := newScreen(width, height)
 	defer e.Close()
+	e.SetCallbacks(vt.Callbacks{
+		EnableMode:  func(mode ansi.Mode) { s.mouse.Set(mode, true) },
+		DisableMode: func(mode ansi.Mode) { s.mouse.Set(mode, false) },
+	})
+	e.RegisterEscHandler('c', func() bool {
+		s.mouse = vtscreen.MouseModes{}
+		s.viewport.Reset()
+		return false
+	})
 	if r.Runtime == nil {
 		s.publish(e, errors.New("task has not started"), false)
 		return
@@ -421,6 +455,7 @@ func (s *Session) run(ctx context.Context, repository *store.JSON, r task.Record
 				w, h = dimensions(sourceSize)
 			}
 			if e.Width() != w || e.Height() != h {
+				s.viewport.Reset()
 				e.Resize(w, h)
 			}
 			needsSize = false

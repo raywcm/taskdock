@@ -49,3 +49,23 @@ func TestUnicodeControlStringsDoNotPrint(t *testing.T) {
 		}
 	}
 }
+
+func TestViewportKeepsEarlierRowsWhileOutputContinues(t *testing.T) {
+	e := New(20, 3)
+	defer e.Close()
+	e.WriteString("\x1b[32molder\x1b[0m\r\nsecond\r\nthird\r\nfourth")
+	var viewport Viewport
+	viewport.Scroll(e, 3)
+	rows := viewport.Rows(e)
+	if !viewport.Scrolled() || !strings.Contains(rows[0], "\x1b[32molder") {
+		t.Fatalf("lost scrollback style or content: %q", rows)
+	}
+	e.WriteString("\r\nlive")
+	if got := viewport.Rows(e)[0]; got != rows[0] {
+		t.Fatalf("live output moved scrollback: %q", got)
+	}
+	viewport.Scroll(e, -3)
+	if viewport.Scrolled() || !strings.Contains(viewport.Rows(e)[2], "live") {
+		t.Fatal("scrolling down did not return to the live screen")
+	}
+}

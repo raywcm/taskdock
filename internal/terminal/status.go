@@ -33,6 +33,11 @@ type statusScreen struct {
 	memory      string
 	previous    []string
 	controls    strings.Builder
+	viewport    vtscreen.Viewport
+	appMouse    vtscreen.MouseModes
+	hostMouse   vtscreen.MouseModes
+	scrollMouse bool
+	noScroll    bool
 	live        bool
 	relay       atomic.Bool
 	dirty       bool
@@ -76,6 +81,11 @@ func newStatusScreen(size task.Size, spec task.Spec, send func(protocol.Frame) e
 		Bell:        func() { s.controls.WriteByte('\a') },
 		EnableMode:  func(mode ansi.Mode) { s.inputMode(mode, true) },
 		DisableMode: func(mode ansi.Mode) { s.inputMode(mode, false) },
+	})
+	s.e.RegisterEscHandler('c', func() bool {
+		s.appMouse = vtscreen.MouseModes{}
+		s.viewport.Reset()
+		return false
 	})
 	// Palette queries must reach the real terminal. Its replies pass through the
 	// existing input decoder, preserving light/dark detection and custom palettes.
@@ -136,21 +146,62 @@ func (s *statusScreen) source(size task.Size) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.e.Resize(min(512, int(size.Cols)), min(256, int(size.Rows)))
+	s.viewport.Reset()
 	s.previous = nil
 	s.dirty = true
 }
 
 func (s *statusScreen) inputMode(mode ansi.Mode, enabled bool) {
+	if s.appMouse.Set(mode, enabled) {
+		return
+	}
 	// Only physical input encoding follows the application. Screen modes stay
 	// private to the viewport, so a clear/reset cannot erase the status row.
 	switch mode {
-	case ansi.DECMode(1), ansi.DECMode(9), ansi.DECMode(1000), ansi.DECMode(1002), ansi.DECMode(1003), ansi.DECMode(1004), ansi.DECMode(1005), ansi.DECMode(1006), ansi.DECMode(1015), ansi.DECMode(1016), ansi.DECMode(2004):
+	case ansi.DECMode(1), ansi.DECMode(1004), ansi.DECMode(2004):
 		if enabled {
 			s.controls.WriteString(ansi.SetMode(mode))
 		} else {
 			s.controls.WriteString(ansi.ResetMode(mode))
 		}
 	}
+}
+
+func (s *statusScreen) updateMouse(out *strings.Builder) {
+	next := s.appMouse
+	s.scrollMouse = !s.noScroll && next.Tracking == 0 && !s.e.IsAltScreen() && s.e.ScrollbackLen() > 0
+	if s.scrollMouse {
+		next = vtscreen.MouseModes{Tracking: ansi.ModeMouseNormal, Encoding: ansi.ModeMouseExtSgr}
+	}
+	for _, change := range [][2]ansi.DECMode{{s.hostMouse.Tracking, next.Tracking}, {s.hostMouse.Encoding, next.Encoding}} {
+		if before, after := change[0], change[1]; before != after && before != 0 {
+			out.WriteString(ansi.ResetMode(before))
+		}
+	}
+	for _, change := range [][2]ansi.DECMode{{s.hostMouse.Encoding, next.Encoding}, {s.hostMouse.Tracking, next.Tracking}} {
+		if before, after := change[0], change[1]; before != after && after != 0 {
+			out.WriteString(ansi.SetMode(after))
+		}
+	}
+	s.hostMouse = next
+}
+
+func (s *statusScreen) mouseInput(raw []byte) []byte {
+	x, y, lines, ok := vtscreen.ScrollMouse(raw)
+	if !ok {
+		return raw
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.scrollMouse || s.appMouse.Tracking != 0 {
+		return raw
+	}
+	app := sessionSize(s.size, true)
+	if lines != 0 && x >= 0 && x < int(app.Cols) && y >= 0 && y < int(app.Rows) {
+		s.viewport.Scroll(s.e, lines)
+		s.dirty = true
+	}
+	return nil
 }
 
 func (s *statusScreen) close() {
@@ -169,6 +220,9 @@ func (s *statusScreen) feed(data []byte) (err error) {
 		}
 	}()
 	_, err = s.e.Write(data)
+	if s.appMouse.Tracking != 0 || s.e.IsAltScreen() || s.e.ScrollbackLen() == 0 {
+		s.viewport.Reset()
+	}
 	s.dirty = true
 	return err
 }
@@ -184,6 +238,7 @@ func (s *statusScreen) resize(size task.Size, owner bool) {
 	if owner {
 		s.e.Resize(min(512, int(app.Cols)), min(256, int(app.Rows)))
 	}
+	s.viewport.Reset()
 	s.previous = nil
 	s.dirty = true
 }
@@ -239,7 +294,7 @@ func (s *statusScreen) draw(ctx context.Context, fd int) error {
 	if !s.dirty {
 		return nil
 	}
-	rows := vtscreen.Rows(s.e)
+	rows := s.viewport.Rows(s.e)
 	app := sessionSize(s.size, true)
 	rows = rows[:min(len(rows), int(app.Rows))]
 	for y, row := range rows {
@@ -254,6 +309,7 @@ func (s *statusScreen) draw(ctx context.Context, fd int) error {
 	var out strings.Builder
 	out.WriteString(s.controls.String())
 	s.controls.Reset()
+	s.updateMouse(&out)
 	// Never use save/restore cursor here. Applications keep their own saved
 	// cursor and wrap state in the emulator, even across status-only updates.
 	out.WriteString("\x1b[?25l\x1b[?7l\x1b[0m")
@@ -271,7 +327,7 @@ func (s *statusScreen) draw(ctx context.Context, fd int) error {
 		shape++
 	}
 	fmt.Fprintf(&out, "\x1b[%d q", shape)
-	if !s.e.CursorHidden() {
+	if !s.e.CursorHidden() && !s.viewport.Scrolled() {
 		out.WriteString("\x1b[?25h")
 	}
 	if err := writeTTY(ctx, fd, []byte(out.String())); err != nil {

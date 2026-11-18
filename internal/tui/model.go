@@ -262,6 +262,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	updated := next.(model)
 	if updated.monitorInput != nil {
 		updated.monitorInput.Arm(updated.tab == tabRunning && !updated.monitoring && updated.mode == "" && !updated.busy)
+		if updated.monitoring {
+			left, width, height := updated.monitorGeometry()
+			updated.monitorInput.SetScrollArea(left+5, 5, left+5+width, 5+height)
+		}
 	}
 	// Switching modal geometry over a live pane can confuse hardware-scroll
 	// diffing. Invalidate once at this boundary; ordinary monitor frames still

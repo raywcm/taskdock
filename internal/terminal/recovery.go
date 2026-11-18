@@ -20,7 +20,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-var privateModes = map[int]bool{1: true, 6: true, 7: true, 9: true, 25: true, 47: true, 1047: true, 1049: true, 1000: true, 1002: true, 1003: true, 1004: true, 1005: true, 1006: true, 1015: true, 1016: true, 2004: true}
+var privateModes = map[int]bool{1: true, 6: true, 7: true, 9: true, 25: true, 47: true, 1047: true, 1049: true, 1000: true, 1001: true, 1002: true, 1003: true, 1004: true, 1005: true, 1006: true, 1015: true, 1016: true, 2004: true}
 
 type recovery struct {
 	modes task.TerminalModes
@@ -97,8 +97,8 @@ func (r *recovery) parser() *ansi.Parser {
 						r.modes.Private[alias] = false
 					}
 				}
-				if set && (mode == 9 || mode == 1000 || mode == 1002 || mode == 1003) {
-					for _, alias := range []int{9, 1000, 1002, 1003} {
+				if set && (mode == 9 || mode >= 1000 && mode <= 1003) {
+					for _, alias := range []int{9, 1000, 1001, 1002, 1003} {
 						r.modes.Private[alias] = false
 					}
 				}

@@ -30,6 +30,7 @@ def paint(*args):
 
 
 signal.signal(signal.SIGWINCH, paint)
+os.write(1, b"\x1b[?1006h\x1b[?1000h")
 paint()
 while True:
     p = os.read(0, 4096)

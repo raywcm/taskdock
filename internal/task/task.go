@@ -45,6 +45,14 @@ type Spec struct {
 	CaptureInitial bool      `json:"capture_initial,omitempty"`
 }
 
+// nameRejected reports runes that make a task name ambiguous or deceptive in a
+// terminal. unicode.IsControl covers Cc only; Cf (bidi overrides, zero-width
+// joiners, BOM) is separately excluded because those runes are invisible or
+// reorder surrounding text, so a name can render as a different name.
+func nameRejected(r rune) bool {
+	return unicode.IsControl(r) || unicode.Is(unicode.Cf, r)
+}
+
 func (s Spec) Validate() error {
 	if err := s.ID.Validate(); err != nil {
 		return err
@@ -52,8 +60,13 @@ func (s Spec) Validate() error {
 	if s.SchemaVersion != SchemaVersion {
 		return errors.New("unsupported spec schema")
 	}
-	if !utf8.ValidString(s.Name) || strings.TrimSpace(s.Name) == "" || len(s.Name) > 128 || strings.ContainsFunc(s.Name, unicode.IsControl) {
-		return errors.New("name must contain 1–128 bytes without control characters")
+	if !utf8.ValidString(s.Name) || strings.TrimSpace(s.Name) == "" || len(s.Name) > 128 || strings.ContainsFunc(s.Name, nameRejected) {
+		return errors.New("name must contain 1–128 bytes without control or format characters")
+	}
+	// A leading dash is parsed as a flag by every subcommand, which would make
+	// the task impossible to address by name after it is created.
+	if strings.HasPrefix(s.Name, "-") {
+		return errors.New("name must not start with a dash")
 	}
 	if len(s.Command) == 0 || s.Command[0] == "" {
 		return errors.New("command is required")

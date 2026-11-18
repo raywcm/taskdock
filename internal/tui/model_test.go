@@ -224,29 +224,29 @@ func TestStopAndDeleteTabs(t *testing.T) {
 	}
 }
 
-func TestUnreachableRunningSessionCanBeDeletedWithConfirmation(t *testing.T) {
+func TestUnreachableRunningSessionCanBeStoppedWithConfirmation(t *testing.T) {
+	m := readyModel(t)
+	m.tasks[0].Health = "unreachable"
+	id := m.tasks[0].Spec.ID
 	for _, key := range []rune{tea.KeyDelete, tea.KeyBackspace, 'x'} {
-		m := readyModel(t)
-		m.tasks[0].Health = "unreachable"
-		id := m.tasks[0].Spec.ID
-		m, cmd := press(m, key)
+		got, cmd := press(m, key)
 		noAction(t, cmd)
-		if m.mode != "delete" || m.target != id {
-			t.Fatal("unreachable session was trapped behind Stop")
+		if got.mode != "" || got.message != m.locale().Text("stop_before_delete") {
+			t.Fatal("offered deletion for a running session")
 		}
-		cancel, cmd := press(m, tea.KeyEnter)
-		noAction(t, cmd)
-		if cancel.mode != "" || m.catalog.(*fakeBackend).deleted != "" {
-			t.Fatal("default confirmation deleted an unreachable session")
-		}
-		m, cmd = press(m, 'y')
-		if cmd == nil {
-			t.Fatal("confirmed deletion did not reach the backend lock check")
-		}
-		cmd()
-		if m.catalog.(*fakeBackend).deleted != id {
-			t.Fatal("deleted the wrong unreachable session")
-		}
+	}
+	m, cmd := press(m, 's')
+	noAction(t, cmd)
+	if m.mode != "stop" || m.target != id {
+		t.Fatal("missing Stop confirmation for the unreachable session")
+	}
+	m, cmd = press(m, 'y')
+	if cmd == nil {
+		t.Fatal("confirmed Stop did not reach the backend")
+	}
+	cmd()
+	if m.catalog.(*fakeBackend).stopped != id {
+		t.Fatal("stopped the wrong unreachable session")
 	}
 }
 
@@ -403,7 +403,7 @@ func TestSettingsIsThirdTabAndNavigationPreservesSelections(t *testing.T) {
 		t.Fatal("settings tab exposed a task action target")
 	}
 	view := ansi.Strip(m.View().Content)
-	if !strings.Contains(view, "Running 2") || !strings.Contains(view, "Stop 1") || !strings.Contains(view, "Settings") {
+	if !strings.Contains(view, "Running 2") || !strings.Contains(view, "History 1") || !strings.Contains(view, "Settings") {
 		t.Fatal("settings lost the common tab strip", view)
 	}
 	m, _ = press(m, tea.KeyRight)
@@ -818,7 +818,7 @@ func TestStoppedHistoryScrollAndReturn(t *testing.T) {
 	}
 	m, _ = press(m, tea.KeyEscape)
 	if m.mode != "" || m.tab != tabStop || m.selected.Kind != "" || m.history.cancel != nil {
-		t.Fatal("history did not return to Stop")
+		t.Fatal("history did not return to the History tab")
 	}
 	current, _ := m.current()
 	if current.Spec.ID != id {

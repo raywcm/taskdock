@@ -200,7 +200,7 @@ def test_dialogs_and_names(h):
     os.write(fd,b's');wait_view(fd,terminal,lambda text:'Confirm stop' in text)
     os.write(fd,b'\x1b[C\r');h.finished(created['spec']['id'])
     wait_view(fd,terminal,lambda text:'Confirm stop' not in text)
-    os.write(fd,b'\x1b[C');wait_view(fd,terminal,lambda text:'work-2' in text and 'Stop' in text)
+    os.write(fd,b'\x1b[C');wait_view(fd,terminal,lambda text:'work-2' in text and 'History' in text)
     os.write(fd,b'\x1b[3~');wait_view(fd,terminal,lambda text:'Confirm deletion' in text)
     modal(terminal,'Confirm deletion',fd=fd)
     os.write(fd,b'\r');wait_view(fd,terminal,lambda text:'Confirm deletion' not in text)

@@ -87,7 +87,7 @@ account after a dropped connection. Tasks do not survive a host reboot.
 | In the task list | Action |
 | --- | --- |
 | ↑/↓, Enter | Select and enter a task; stopped tasks open history |
-| Tab / Shift+Tab | Switch Running, Stop and Settings tabs |
+| Tab / Shift+Tab | Switch Running, History and Settings tabs |
 | n, F2, s, Delete | Create, rename, stop or delete; stop/delete require confirmation |
 | v | Open monitor control |
 | Shift+↑/↓ | Move the selected session; order is saved across terminals |

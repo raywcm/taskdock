@@ -99,8 +99,7 @@ func (m *Manager) Observe(ctx context.Context, r task.Record) task.Record {
 	defer cancel()
 	live, err := ipc.Query(probe, m.Store.Root(), *r.Runtime, false)
 	if err != nil {
-		// A broker can finish between loading disk and connecting.
-		if latest, loadErr := m.Store.Load(ctx, r.Spec.ID); loadErr == nil && latest.Runtime != nil && (latest.Runtime.State == task.Exited || latest.Runtime.State == task.Failed) {
+		if latest, err := m.retireOrphan(ctx, r.Spec.ID); err == nil && latest.Runtime != nil {
 			latest.Health = "finished"
 			return latest
 		}
@@ -267,28 +266,22 @@ func (m *Manager) Stop(ctx context.Context, ref string) error {
 		return m.waitRetired(ctx, r.Spec.ID)
 	}
 	if _, err := ipc.Query(ctx, m.Store.Root(), *r.Runtime, true); err != nil {
-		latest := m.Observe(ctx, r)
-		if latest.Health == "finished" {
+		if _, recoveryErr := m.retireOrphan(ctx, r.Spec.ID); recoveryErr == nil || errors.Is(recoveryErr, os.ErrNotExist) {
 			return m.waitRetired(ctx, r.Spec.ID)
+		} else if !errors.Is(recoveryErr, syscall.EWOULDBLOCK) && !errors.Is(recoveryErr, syscall.EAGAIN) {
+			return fmt.Errorf("cannot recover task after stop request failed: %w", recoveryErr)
 		}
 		return fmt.Errorf("cannot stop task through its broker: %w", err)
 	}
-	ticker := time.NewTicker(30 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			r, err = m.Store.Load(ctx, r.Spec.ID)
-			if err != nil {
-				return err
-			}
-			if r.Runtime != nil && (r.Runtime.State == task.Exited || r.Runtime.State == task.Failed) {
-				return m.waitRetired(ctx, r.Spec.ID)
-			}
-		}
+	if err := m.waitRetired(ctx, r.Spec.ID); err != nil {
+		return err
 	}
+	// The broker can disappear after acknowledging Stop but before saving the exit.
+	_, err = m.retireOrphan(ctx, r.Spec.ID)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 func (m *Manager) waitRetired(ctx context.Context, id task.ID) error {
 	for {
@@ -342,33 +335,25 @@ func (m *Manager) Delete(ctx context.Context, ref string) error {
 	return m.Store.Remove(ctx, r.Spec.ID)
 }
 
-// Recover acquires the broker's exclusive lock before changing stale metadata.
-// It deliberately never signals a potentially reused PID from a file.
 func (m *Manager) Recover(ctx context.Context, ref string) error {
-	unlock, err := m.Store.Lock(ctx)
-	if err != nil {
-		return err
-	}
-	defer unlock()
 	r, err := m.Resolve(ctx, ref)
 	if err != nil {
 		return err
 	}
-	release, err := m.Store.BrokerLock(r.Spec.ID)
-	if err != nil {
+	_, err = m.retireOrphan(ctx, r.Spec.ID)
+	if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
 		return errors.New("broker is still alive")
 	}
-	defer release()
-	if r.Runtime == nil {
-		return nil
+	return err
+}
+
+func (m *Manager) retireOrphan(ctx context.Context, id task.ID) (task.Record, error) {
+	unlock, err := m.Store.Lock(ctx)
+	if err != nil {
+		return task.Record{}, err
 	}
-	if r.Runtime.State == task.Exited || r.Runtime.State == task.Failed {
-		return nil
-	}
-	r.Runtime.State = task.Failed
-	r.Runtime.Error = "broker disappeared; child session may need manual inspection"
-	r.Runtime.UpdatedAt = time.Now().UTC()
-	return m.Store.SaveRuntime(ctx, *r.Runtime)
+	defer unlock()
+	return m.Store.RetireOrphan(ctx, id, time.Now())
 }
 
 func (m *Manager) Logs(ctx context.Context, ref string, raw bool, tail int) ([]byte, error) {

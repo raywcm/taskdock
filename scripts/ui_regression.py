@@ -66,10 +66,10 @@ def main():
             wait_view(fd,terminal,lambda text:'Keyboard shortcuts' in text)
             os.write(fd,b'?')
             wait_view(fd,terminal,lambda text:'live-work' in text and 'Keyboard shortcuts' not in text)
-            os.write(fd,b'\x1b[C\x1b[C') # Running -> Stop -> Settings
+            os.write(fd,b'\x1b[C\x1b[C') # Running -> History -> Settings
             text=wait_view(fd,terminal,lambda text:'Language' in text and 'Default tab' in text and 'Enter edit' in text)
             assert version in text and version not in terminal.display[0], 'version belongs in settings'
-            tab_row=next(i for i,row in enumerate(terminal.display) if all(label in row for label in ('Running','Stop','Settings')))
+            tab_row=next(i for i,row in enumerate(terminal.display) if all(label in row for label in ('Running','History','Settings')))
             tab_x=terminal.display[tab_row].index('Settings')
             assert terminal.current.buffer[tab_row][tab_x].reverse, 'settings tab was not selected'
             assert 'live-work' not in text and 'completed-work' not in text
@@ -84,9 +84,9 @@ def main():
             wait_view(fd,terminal,lambda text:'设置已保存' in text and '运行中' in text)
             assert json.loads(h.cli('settings','--json').stdout)['language']=='zh-CN'
             assert 'live-work' not in '\n'.join(terminal.display), 'save unexpectedly left the settings tab'
-            os.write(fd,b'\x1b[D') # Settings -> Stop
+            os.write(fd,b'\x1b[D') # Settings -> History
             wait_view(fd,terminal,lambda text:'completed-work' in text)
-            os.write(fd,b'\x1b[D') # Stop -> Running
+            os.write(fd,b'\x1b[D') # History -> Running
             wait_view(fd,terminal,lambda text:'live-work' in text)
             os.write(fd,b',');wait_view(fd,terminal,lambda text:'刷新间隔' in text)
             os.write(fd,b'\x1b[B\x1b[B\x1b[B\x1b[C\r')
@@ -102,13 +102,13 @@ def main():
             os.write(fd,b'q');drain(fd);assert h.join(pid)==0
             h.cli('settings','set','default-tab','stop')
             pid,fd=h.spawn_tty();terminal=Terminal()
-            text=wait_view(fd,terminal,lambda text:'completed-work' in text and '已停止' in text)
+            text=wait_view(fd,terminal,lambda text:'completed-work' in text and '历史' in text)
             assert 'live-work' not in text
             os.write(fd,b'q');drain(fd);assert h.join(pid)==0
             for code,native,stopped,language_label in [
-                ('ja','日本語','停止済み','言語'),
-                ('es','Español','Detenidas','Idioma'),
-                ('fr','Français','Arrêtées','Langue'),
+                ('ja','日本語','履歴','言語'),
+                ('es','Español','Historial','Idioma'),
+                ('fr','Français','Historique','Langue'),
             ]:
                 h.cli('settings','set','language',code)
                 pid,fd=h.spawn_tty();terminal=Terminal()

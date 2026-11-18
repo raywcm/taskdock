@@ -157,8 +157,7 @@ func (s *JSON) List(ctx context.Context) ([]task.Record, error) {
 	return records, s.applyOrder(records)
 }
 
-// SaveRuntime must only be called by the broker that owns the task. Enforcing
-// this ownership across processes is the supervisor's lock/handshake responsibility.
+// SaveRuntime requires exclusive ownership of the task's broker lock.
 func (s *JSON) SaveRuntime(ctx context.Context, runtime task.Runtime) error {
 	if err := ctx.Err(); err != nil {
 		return err

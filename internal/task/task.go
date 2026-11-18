@@ -96,7 +96,7 @@ func CanTransition(from, to State) bool {
 	}
 }
 
-// Runtime has exactly one writer: the owning broker. PIDs are diagnostic, not identity.
+// Runtime is written under the broker lock. PIDs are diagnostic, not identity.
 type Runtime struct {
 	SchemaVersion int        `json:"schema_version"`
 	TaskID        ID         `json:"task_id"`

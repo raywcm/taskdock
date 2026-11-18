@@ -342,13 +342,12 @@ def test_jobs_crash_and_concurrency(h):
     task = h.create('crash', '/bin/sh', '-c', 'read value')
     record = h.show(task)
     os.kill(record['runtime']['broker_pid'], signal.SIGKILL)
-    until(lambda: h.show(task)['health'] == 'unreachable')
     def crashed_child_gone():
         try:os.kill(record['runtime']['child_pid'],0);return False
         except ProcessLookupError:return True
     until(crashed_child_gone)
-    h.cli('recover', task)
-    assert h.show(task)['runtime']['state'] == 'failed'
+    h.cli('stop', task)
+    assert until(lambda: (r if (r := h.show(task))['health'] == 'finished' else None))['runtime']['state'] == 'failed'
     h.cli('delete', task)
     def create(i):
         return h.create('parallel-'+str(i), '/bin/sh', '-c', 'sleep 20')
@@ -362,7 +361,7 @@ def test_jobs_crash_and_concurrency(h):
         codes=list(pool.map(same,range(4)))
     assert codes.count(0)==1,codes
     h.cli('stop','same-name')
-    print('PASS session job cleanup, broker SIGKILL/recover, 16 tasks and concurrent name reservation', flush=True)
+    print('PASS session job cleanup, stopping after broker SIGKILL, 16 tasks and concurrent name reservation', flush=True)
 
 
 def test_logs_and_upgrade(h):

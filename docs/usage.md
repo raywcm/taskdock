@@ -85,10 +85,11 @@ tdock logs --tail 4096 work-old
 tdock delete work-old
 ```
 
-`stop` sends TERM, then KILL after one second if necessary. Deletion requires no
-active broker. Confirmed dead sessions can be deleted directly, including from
-the Running tab, without running `recover` first. A timeout alone cannot bypass
-the broker lock. `show` reports exit code and signal.
+`stop` sends TERM, then KILL after one second if necessary. If the broker has
+already died, `stop` moves the session to History and retains its output.
+TaskDock also checks for lost brokers in the background, even when history
+expiry is disabled. The broker lock protects sessions during temporary connection
+failures. `show` reports exit code and signal.
 Detach returns 0; an application exit is returned by `attach`.
 
 Logs retain two approximately 8 MiB files. Normal viewing strips control
@@ -100,7 +101,7 @@ tdock settings set history-retention 24h
 tdock settings set history-retention off
 ```
 
-In the Stop tab, Enter opens retained output. Use arrows, PgUp/PgDn, Home/End to
+In the History tab, Enter opens retained output. Use arrows, PgUp/PgDn, Home/End to
 navigate; Esc/q returns. Viewing history does not restart the task.
 
 ## Multiple clients

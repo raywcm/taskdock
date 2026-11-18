@@ -1,4 +1,4 @@
-// Package history manages stopped-session retention independently of PTY brokers.
+// Package history reconciles lost sessions and enforces retention independently of PTY brokers.
 package history
 
 import (
@@ -21,11 +21,11 @@ import (
 // startup is harmless: the worker itself owns the exclusive history lock.
 func Ensure(repository *store.JSON) error {
 	retention, err := repository.HistoryRetention()
-	if err != nil || retention == 0 {
+	if err != nil {
 		return err
 	}
 	records, err := repository.List(context.Background())
-	if err != nil || len(records) == 0 {
+	if err != nil || !needsWorker(records, retention) {
 		return err
 	}
 	release, err := repository.HistoryLock()
@@ -60,7 +60,16 @@ func Ensure(repository *store.JSON) error {
 	return nil
 }
 
-// Run keeps timers alive after the frontend exits. No task signals are sent.
+func needsWorker(records []task.Record, retention time.Duration) bool {
+	for _, r := range records {
+		if retention > 0 || (r.Runtime != nil && task.CanTransition(r.Runtime.State, task.Failed)) {
+			return true
+		}
+	}
+	return false
+}
+
+// Run keeps reconciling sessions after the frontend exits. No task signals are sent.
 func Run(ctx context.Context, state string) error {
 	repository, err := store.OpenExisting(state)
 	if err != nil {
@@ -81,7 +90,7 @@ func Run(ctx context.Context, state string) error {
 			return err
 		}
 		if !pending {
-			// Coordinate the final empty/disabled check with task creation and setting
+			// Coordinate the final work check with task creation and setting
 			// writes. Release the worker lock before the catalog lock so Ensure cannot
 			// miss a worker that is about to exit after publishing a new task.
 			unlock, err := repository.Lock(ctx)
@@ -90,7 +99,7 @@ func Run(ctx context.Context, state string) error {
 			}
 			retention, readErr := repository.HistoryRetention()
 			records, listErr := repository.List(ctx)
-			done := readErr == nil && listErr == nil && (retention == 0 || len(records) == 0)
+			done := readErr == nil && listErr == nil && !needsWorker(records, retention)
 			if done {
 				release()
 			}
@@ -115,8 +124,7 @@ func Run(ctx context.Context, state string) error {
 	}
 }
 
-// Sweep rechecks policy under the catalog lock. Only terminal records whose
-// broker lock is free can be removed; stale running PIDs are never consulted.
+// Sweep reconciles orphaned sessions and expires retained history under the catalog lock.
 func Sweep(ctx context.Context, repository *store.JSON, now time.Time) (bool, error) {
 	unlock, err := repository.Lock(ctx)
 	if err != nil {
@@ -124,7 +132,7 @@ func Sweep(ctx context.Context, repository *store.JSON, now time.Time) (bool, er
 	}
 	defer unlock()
 	retention, err := repository.HistoryRetention()
-	if err != nil || retention == 0 {
+	if err != nil {
 		return false, err
 	}
 	records, err := repository.List(ctx)
@@ -136,11 +144,21 @@ func Sweep(ctx context.Context, repository *store.JSON, now time.Time) (bool, er
 		if err := ctx.Err(); err != nil {
 			return true, err
 		}
-		ended := record.Spec.CreatedAt
-		if r := record.Runtime; r != nil {
-			if r.State != task.Exited && r.State != task.Failed {
+		if record.Runtime != nil && task.CanTransition(record.Runtime.State, task.Failed) {
+			record, err = repository.RetireOrphan(ctx, record.Spec.ID, now)
+			if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
 				continue
 			}
+			if err != nil {
+				return true, fmt.Errorf("recover session %s: %w", record.Spec.ID, err)
+			}
+		}
+		if retention == 0 {
+			remaining--
+			continue
+		}
+		ended := record.Spec.CreatedAt
+		if r := record.Runtime; r != nil {
 			ended = r.UpdatedAt
 			if r.FinishedAt != nil && !r.FinishedAt.IsZero() {
 				ended = *r.FinishedAt

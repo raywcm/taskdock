@@ -37,6 +37,37 @@ func (s *JSON) BrokerLock(id task.ID) (func(), error) {
 	}
 	return lock(context.Background(), name, false)
 }
+
+// RetireOrphan requires the catalog lock. It records the loss of a broker
+// only after taking its exclusive lock, without relying on stored PIDs.
+func (s *JSON) RetireOrphan(ctx context.Context, id task.ID, now time.Time) (task.Record, error) {
+	record, err := s.Load(ctx, id)
+	if err != nil || record.Runtime == nil || !task.CanTransition(record.Runtime.State, task.Failed) {
+		return record, err
+	}
+	release, err := s.BrokerLock(id)
+	if err != nil {
+		return record, err
+	}
+	defer release()
+	// The broker may have saved a normal exit immediately before releasing its lock.
+	record, err = s.Load(ctx, id)
+	if err != nil || record.Runtime == nil || !task.CanTransition(record.Runtime.State, task.Failed) {
+		return record, err
+	}
+	runtime := *record.Runtime
+	finished := now.UTC()
+	runtime.State = task.Failed
+	runtime.Error = "broker disappeared; child session may need manual inspection"
+	runtime.UpdatedAt = finished
+	runtime.FinishedAt = &finished
+	if err := s.SaveRuntime(ctx, runtime); err != nil {
+		return record, err
+	}
+	record.Runtime = &runtime
+	return record, nil
+}
+
 func lock(ctx context.Context, name string, wait bool) (func(), error) {
 	fd, err := unix.Open(name, unix.O_CREAT|unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0600)
 	if err != nil {

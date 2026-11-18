@@ -44,7 +44,13 @@ func TestRetentionDeletesOnlyExpiredUnlockedHistory(t *testing.T) {
 	expired := stopped(t, repository, task.Exited, old)
 	failed := stopped(t, repository, task.Failed, old)
 	recent := stopped(t, repository, task.Exited, now.Add(-10*time.Minute))
-	running := stopped(t, repository, task.Running, old)
+	orphan := stopped(t, repository, task.Running, old)
+	live := stopped(t, repository, task.Running, old)
+	releaseLive, err := repository.BrokerLock(live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseLive()
 	locked := stopped(t, repository, task.Exited, old)
 	release, err := repository.BrokerLock(locked)
 	if err != nil {
@@ -59,10 +65,18 @@ func TestRetentionDeletesOnlyExpiredUnlockedHistory(t *testing.T) {
 			t.Fatalf("expired record survived: %s %v", id, err)
 		}
 	}
-	for _, id := range []task.ID{recent, running, locked} {
+	for _, id := range []task.ID{recent, orphan, live, locked} {
 		if _, err := repository.Load(ctx, id); err != nil {
 			t.Fatalf("protected record removed: %s %v", id, err)
 		}
+	}
+	r, err := repository.Load(ctx, orphan)
+	if err != nil || r.Runtime.State != task.Failed || r.Runtime.FinishedAt == nil || !r.Runtime.FinishedAt.Equal(now) {
+		t.Fatalf("orphan was not retired with a fresh retention window: %+v %v", r.Runtime, err)
+	}
+	r, err = repository.Load(ctx, live)
+	if err != nil || r.Runtime.State != task.Running {
+		t.Fatalf("lock-owned session was changed: %+v %v", r.Runtime, err)
 	}
 	release()
 	if _, err := Sweep(ctx, repository, now); err != nil {
@@ -82,8 +96,13 @@ func TestDisabledAndExtendedRetentionProtectHistory(t *testing.T) {
 	if err := repository.SaveSettings(ctx, settings); err != nil {
 		t.Fatal(err)
 	}
+	orphan := stopped(t, repository, task.Stopping, now.Add(-2*time.Hour))
 	if pending, err := Sweep(ctx, repository, now); err != nil || pending {
 		t.Fatal(pending, err)
+	}
+	r, err := repository.Load(ctx, orphan)
+	if err != nil || r.Runtime.State != task.Failed {
+		t.Fatalf("disabled expiry prevented recovery: %+v %v", r.Runtime, err)
 	}
 	if _, err := repository.Load(ctx, id); err != nil {
 		t.Fatal(err)

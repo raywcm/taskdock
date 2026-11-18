@@ -99,7 +99,7 @@ func (s *JSON) Load(ctx context.Context, id task.ID) (task.Record, error) {
 	if err := readJSON(filepath.Join(dir, "spec.json"), &record.Spec); err != nil {
 		return record, err
 	}
-	if err := record.Spec.Validate(); err != nil {
+	if err := record.Spec.ValidateStored(); err != nil {
 		return record, err
 	}
 	if record.Spec.ID != id {

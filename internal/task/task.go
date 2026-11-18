@@ -45,7 +45,23 @@ type Spec struct {
 	CaptureInitial bool      `json:"capture_initial,omitempty"`
 }
 
+// Validate checks a spec before creating a task or changing its name.
 func (s Spec) Validate() error {
+	if err := s.ValidateStored(); err != nil {
+		return err
+	}
+	if strings.ContainsFunc(s.Name, func(r rune) bool { return unicode.Is(unicode.Cf, r) }) {
+		return errors.New("name must not contain Unicode format characters")
+	}
+	if strings.HasPrefix(s.Name, "-") {
+		return errors.New("name must not start with a dash")
+	}
+	return nil
+}
+
+// ValidateStored accepts names saved by older versions so their tasks can
+// still be listed, stopped, and renamed after an upgrade.
+func (s Spec) ValidateStored() error {
 	if err := s.ID.Validate(); err != nil {
 		return err
 	}

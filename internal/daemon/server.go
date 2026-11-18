@@ -22,6 +22,18 @@ import (
 	"github.com/raywcm/taskdock/internal/task"
 )
 
+// stopGrace is how long a task may take to exit after SIGTERM before it is
+// killed. Programs that flush state on SIGTERM need more than the previous
+// one-second window; TDOCK_STOP_GRACE overrides it (e.g. "30s").
+var stopGrace = func() time.Duration {
+	if v := os.Getenv("TDOCK_STOP_GRACE"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return 5 * time.Second
+}()
+
 type Ready struct {
 	Runtime *task.Runtime `json:"runtime,omitempty"`
 	Error   string        `json:"error,omitempty"`
@@ -203,7 +215,10 @@ loop:
 				stopping = true
 				_ = s.save(task.Stopping)
 				_ = ptyprocess.SignalSession(process.PID(), syscall.SIGTERM)
-				timer = time.NewTimer(time.Second)
+				// One second was not enough for a program that flushes state on
+				// SIGTERM: it was killed mid-save. Processes that exit promptly
+				// still return immediately, so only genuinely slow cleanups wait.
+				timer = time.NewTimer(stopGrace)
 				force = timer.C
 			}
 		case <-contextDone:

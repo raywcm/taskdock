@@ -85,11 +85,16 @@ tdock logs --tail 4096 work-old
 tdock delete work-old
 ```
 
-`stop` sends TERM, then KILL after one second if necessary. If the broker has
+`stop` sends TERM, then KILL after five seconds if necessary. Set
+`TDOCK_STOP_GRACE` when creating a session to use a different duration, such as
+`TDOCK_STOP_GRACE=30s tdock new -ds work -- command`. If the broker has
 already died, `stop` moves the session to History and retains its output.
 TaskDock also checks for lost brokers in the background, even when history
 expiry is disabled. The broker lock protects sessions during temporary connection
 failures. `show` reports exit code and signal.
+
+If `tdock ls` reports an unreadable task record, use the full ID in the warning
+to remove it with `tdock delete ID` once its broker has exited.
 Detach returns 0; an application exit is returned by `attach`.
 
 Logs retain two approximately 8 MiB files. Normal viewing strips control

@@ -31,11 +31,14 @@ func (s *JSON) Lock(ctx context.Context) (func(), error) {
 	return lock(ctx, filepath.Join(s.root, "catalog.lock"), true)
 }
 func (s *JSON) BrokerLock(id task.ID) (func(), error) {
-	name, err := s.Path(id, "broker.lock")
+	dir, err := s.taskDir(id)
 	if err != nil {
 		return nil, err
 	}
-	return lock(context.Background(), name, false)
+	if err := checkPrivateDir(dir); err != nil {
+		return nil, err
+	}
+	return lock(context.Background(), filepath.Join(dir, "broker.lock"), false)
 }
 
 // RetireOrphan requires the catalog lock. It records the loss of a broker
@@ -116,10 +119,20 @@ func (s *JSON) Rename(ctx context.Context, id task.ID, name string) error {
 
 // Remove requires the catalog and broker locks. IDs are never reused.
 func (s *JSON) Remove(ctx context.Context, id task.ID) error {
-	if _, err := s.Load(ctx, id); err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	dir, _ := s.taskDir(id)
+	dir, err := s.taskDir(id)
+	if err != nil {
+		return err
+	}
+	// Removal must succeed for an unreadable record too. Loading first would
+	// leave a corrupt spec.json undeletable, which is exactly the state a
+	// partial write produces. Existence of the directory is still required so
+	// that deleting an unknown ID keeps reporting ErrNotExist.
+	if err := checkPrivateDir(dir); err != nil {
+		return err
+	}
 	return os.RemoveAll(dir)
 }
 

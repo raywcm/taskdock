@@ -119,7 +119,9 @@ class Harness:
         return json.loads(self.cli('show', ref).stdout)
 
     def finished(self, ref):
-        result = until(lambda: (r if (r := self.show(ref)).get('runtime', {}).get('state') in ('exited', 'failed') else None))
+        grace = self.show(ref)['runtime'].get('stop_grace_ns', 0) / 1e9
+        result = until(lambda: (r if (r := self.show(ref)).get('runtime', {}).get('state') in ('exited', 'failed') else None),
+                       seconds=max(5, grace + 3))
         self.cli('stop', ref)
         return result
 
@@ -364,6 +366,44 @@ def test_jobs_crash_and_concurrency(h):
     print('PASS session job cleanup, stopping after broker SIGKILL, 16 tasks and concurrent name reservation', flush=True)
 
 
+def test_stop_grace(h):
+    on_term = """
+import pathlib, signal, sys, time
+
+def save(*_):
+    time.sleep(float(sys.argv[1]))
+    pathlib.Path(sys.argv[2]).write_text("saved")
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, save)
+print("READY", flush=True)
+while True:
+    time.sleep(1)
+"""
+    saved = ENV.pop("TDOCK_STOP_GRACE", None)
+    try:
+        for name, override, delay, command in (
+            ("default-grace", None, "1.3", "stop"),
+            ("override-grace", "7s", "5.2", "kill-session"),
+        ):
+            if override:
+                ENV["TDOCK_STOP_GRACE"] = override
+            marker = h.root / (name + ".saved")
+            task = h.create(name, sys.executable, "-c", on_term, delay, str(marker))
+            ENV.pop("TDOCK_STOP_GRACE", None)
+            until(lambda: b"READY" in h.cli("logs", task).stdout)
+            h.cli(command, task)
+            assert marker.read_text() == "saved"
+            if command == "stop":
+                assert h.show(task)["runtime"]["exit_code"] == 0
+            else:
+                assert not (h.state / "tasks" / task).exists()
+    finally:
+        if saved is not None:
+            ENV["TDOCK_STOP_GRACE"] = saved
+    print("PASS SIGTERM persistence with the default grace and a broker-specific override beyond five seconds", flush=True)
+
+
 def test_logs_and_upgrade(h):
     script = 'import os;os.write(1,b"X"*(18*1024*1024));os.write(1,b"\\x1b]52;c;SECRET\\x07\\x1b[31mEND\\x1b[0m\\n")'
     task = h.create('large-output', sys.executable, '-c', script)
@@ -438,8 +478,7 @@ def test_tui(h):
             assert ui.show('tui-renamed')['health']=='online'
             os.write(fd,b's');drain(fd,.15)
             os.write(fd,b'y');drain(fd,.2)
-            until(lambda:ui.show('tui-renamed')['health']=='finished')
-            ui.cli('stop','tui-renamed');drain(fd,.3)
+            ui.finished('tui-renamed');drain(fd,.3)
             os.write(fd,b'\x1b[C');drain(fd,.2)
             os.write(fd,b'\x1b[3~');drain(fd)
             os.write(fd,b'y');drain(fd,.3)
@@ -478,7 +517,7 @@ def main():
         harness=Harness(root)
         try:
             for test in (test_lifecycle,test_foreground_startup,test_attach,test_protocol_and_transparency,
-                         test_resize_interrupt_and_noescape,test_jobs_crash_and_concurrency,
+                         test_resize_interrupt_and_noescape,test_jobs_crash_and_concurrency,test_stop_grace,
                          test_logs_and_upgrade,test_slow_and_malformed_clients,test_tui,test_bash_and_vim):
                 test(harness)
             for log in harness.state.glob('tasks/*/broker.log'):

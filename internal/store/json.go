@@ -123,14 +123,21 @@ func (s *JSON) Load(ctx context.Context, id task.ID) (task.Record, error) {
 }
 
 func (s *JSON) List(ctx context.Context) ([]task.Record, error) {
+	records, _, err := s.ListWithWarnings(ctx)
+	return records, err
+}
+
+// ListWithWarnings reports unreadable task records separately from catalog errors.
+func (s *JSON) ListWithWarnings(ctx context.Context) ([]task.Record, []error, error) {
 	entries, err := os.ReadDir(filepath.Join(s.root, "tasks"))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	records := make([]task.Record, 0, len(entries))
+	var warnings []error
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if !entry.IsDir() {
 			continue
@@ -140,11 +147,18 @@ func (s *JSON) List(ctx context.Context) ([]task.Record, error) {
 			continue
 		}
 		record, err := s.Load(ctx, id)
+		if ctx.Err() != nil {
+			return nil, nil, ctx.Err()
+		}
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
 		if err != nil {
-			return nil, fmt.Errorf("load task %s: %w", id, err)
+			// One unreadable task must not take the whole listing down: a
+			// half-written spec.json would otherwise leave every command,
+			// including delete, failing with no way to clean up.
+			warnings = append(warnings, fmt.Errorf("skipping unreadable task %s: %w", id, err))
+			continue
 		}
 		records = append(records, record)
 	}
@@ -154,7 +168,7 @@ func (s *JSON) List(ctx context.Context) ([]task.Record, error) {
 		}
 		return records[i].Spec.CreatedAt.Before(records[j].Spec.CreatedAt)
 	})
-	return records, s.applyOrder(records)
+	return records, warnings, s.applyOrder(records)
 }
 
 // SaveRuntime requires exclusive ownership of the task's broker lock.

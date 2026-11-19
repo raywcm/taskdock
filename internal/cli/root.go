@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/raywcm/taskdock/internal/config"
 	"github.com/raywcm/taskdock/internal/daemon"
@@ -160,9 +159,12 @@ func NewRoot() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		records, err := m.List(cmd.Context())
+		records, warnings, err := m.ListWithWarnings(cmd.Context())
 		if err != nil {
 			return err
+		}
+		for _, warning := range warnings {
+			fmt.Fprintln(cmd.ErrOrStderr(), "TaskDock:", warning)
 		}
 		if history {
 			filtered := make([]task.Record, 0)
@@ -324,9 +326,7 @@ func NewRoot() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
-		defer cancel()
-		return m.Stop(ctx, args[0])
+		return m.Stop(cmd.Context(), args[0])
 	}}
 	root.AddCommand(stop)
 	var renameTarget string
@@ -375,12 +375,10 @@ func NewRoot() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
-		defer cancel()
-		if err := m.Stop(ctx, string(r.Spec.ID)); err != nil {
+		if err := m.Stop(cmd.Context(), string(r.Spec.ID)); err != nil {
 			return err
 		}
-		return m.Delete(ctx, string(r.Spec.ID))
+		return m.Delete(cmd.Context(), string(r.Spec.ID))
 	}}
 	kill.Flags().StringVarP(&killTarget, "target", "t", "", "target session name or ID")
 	root.AddCommand(kill)

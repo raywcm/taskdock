@@ -67,3 +67,27 @@ func TestNameConflictReturnsSuggestionWithoutMutation(t *testing.T) {
 		t.Fatal("explicit numbered rename failed")
 	}
 }
+
+func TestResolveRejectsNameThatAlsoMatchesAnotherID(t *testing.T) {
+	m, err := New(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	const prefix = "abcd"
+	first, second := nameRecord(prefix), nameRecord("worker")
+	first.Spec.ID = task.ID(prefix + strings.Repeat("0", 28))
+	second.Spec.ID = task.ID(prefix + strings.Repeat("1", 28))
+	for _, r := range []task.Record{first, second} {
+		if err := m.Store.Create(ctx, r.Spec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := m.Resolve(ctx, prefix); err == nil || !strings.Contains(err.Error(), "use the full ID") {
+		t.Fatalf("ambiguous reference resolved to a task: %v", err)
+	}
+	r, err := m.Resolve(ctx, string(second.Spec.ID))
+	if err != nil || r.Spec.ID != second.Spec.ID {
+		t.Fatalf("full ID did not resolve: %q, %v", r.Spec.ID, err)
+	}
+}

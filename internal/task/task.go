@@ -112,20 +112,23 @@ func CanTransition(from, to State) bool {
 	}
 }
 
+const DefaultStopGrace = 5 * time.Second
+
 // Runtime is written under the broker lock. PIDs are diagnostic, not identity.
 type Runtime struct {
-	SchemaVersion int        `json:"schema_version"`
-	TaskID        ID         `json:"task_id"`
-	InstanceID    ID         `json:"instance_id"`
-	State         State      `json:"state"`
-	BrokerPID     int        `json:"broker_pid"`
-	ChildPID      int        `json:"child_pid"`
-	UpdatedAt     time.Time  `json:"updated_at"`
-	ExitCode      *int       `json:"exit_code,omitempty"`
-	Signal        string     `json:"signal,omitempty"`
-	Error         string     `json:"error,omitempty"`
-	StartedAt     *time.Time `json:"started_at,omitempty"`
-	FinishedAt    *time.Time `json:"finished_at,omitempty"`
+	SchemaVersion int           `json:"schema_version"`
+	TaskID        ID            `json:"task_id"`
+	InstanceID    ID            `json:"instance_id"`
+	State         State         `json:"state"`
+	BrokerPID     int           `json:"broker_pid"`
+	ChildPID      int           `json:"child_pid"`
+	UpdatedAt     time.Time     `json:"updated_at"`
+	ExitCode      *int          `json:"exit_code,omitempty"`
+	Signal        string        `json:"signal,omitempty"`
+	Error         string        `json:"error,omitempty"`
+	StartedAt     *time.Time    `json:"started_at,omitempty"`
+	FinishedAt    *time.Time    `json:"finished_at,omitempty"`
+	StopGrace     time.Duration `json:"stop_grace_ns,omitempty"`
 }
 
 func (r Runtime) Validate() error {
@@ -145,6 +148,9 @@ func (r Runtime) Validate() error {
 	}
 	if r.UpdatedAt.IsZero() {
 		return errors.New("runtime update time is required")
+	}
+	if r.StopGrace < 0 {
+		return errors.New("invalid stop grace period")
 	}
 	if r.State == Exited && r.ExitCode == nil {
 		return errors.New("exited runtime requires an exit code")

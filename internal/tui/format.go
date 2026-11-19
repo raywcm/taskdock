@@ -64,7 +64,10 @@ func memory(bytes uint64) string {
 	if bytes >= 1<<20 {
 		return fmt.Sprintf("%.0f MiB", float64(bytes)/(1<<20))
 	}
-	return fmt.Sprintf("%d KiB", bytes/1024)
+	if bytes >= 1<<10 {
+		return fmt.Sprintf("%d KiB", bytes/1024)
+	}
+	return fmt.Sprintf("%d B", bytes)
 }
 func displayPath(dir string) string {
 	home, err := os.UserHomeDir()

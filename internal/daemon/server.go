@@ -22,6 +22,18 @@ import (
 	"github.com/raywcm/taskdock/internal/task"
 )
 
+// stopGrace is how long a task may take to exit after SIGTERM before it is
+// killed. Programs that flush state on SIGTERM need more than the previous
+// one-second window; TDOCK_STOP_GRACE overrides it (e.g. "30s").
+var stopGrace = func() time.Duration {
+	if v := os.Getenv("TDOCK_STOP_GRACE"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return task.DefaultStopGrace
+}()
+
 type Ready struct {
 	Runtime *task.Runtime `json:"runtime,omitempty"`
 	Error   string        `json:"error,omitempty"`
@@ -84,7 +96,7 @@ func Run(ctx context.Context, state string, id task.ID, ready io.Writer) (result
 	if err != nil {
 		return err
 	}
-	s := &server{store: repository, runtime: task.Runtime{SchemaVersion: 1, TaskID: id, InstanceID: instance, State: task.Starting, BrokerPID: os.Getpid(), UpdatedAt: time.Now().UTC()}, stop: make(chan struct{}), finished: make(chan struct{}), conns: make(map[*net.UnixConn]bool), slots: make(chan struct{}, 32)}
+	s := &server{store: repository, runtime: task.Runtime{SchemaVersion: 1, TaskID: id, InstanceID: instance, State: task.Starting, BrokerPID: os.Getpid(), UpdatedAt: time.Now().UTC(), StopGrace: stopGrace}, stop: make(chan struct{}), finished: make(chan struct{}), conns: make(map[*net.UnixConn]bool), slots: make(chan struct{}, 32)}
 	if err := s.save(task.Starting); err != nil {
 		return err
 	}
@@ -203,7 +215,7 @@ loop:
 				stopping = true
 				_ = s.save(task.Stopping)
 				_ = ptyprocess.SignalSession(process.PID(), syscall.SIGTERM)
-				timer = time.NewTimer(time.Second)
+				timer = time.NewTimer(s.runtime.StopGrace)
 				force = timer.C
 			}
 		case <-contextDone:
@@ -214,12 +226,20 @@ loop:
 			force = nil
 		}
 	}
-	// A shell may exit while its background job still holds the slave open.
-	_ = ptyprocess.SignalSession(process.PID(), syscall.SIGTERM)
+	// A shell may exit while a child still holds the PTY. During an explicit
+	// stop, let that child use the remaining grace period without a second TERM.
+	if !stopping {
+		_ = ptyprocess.SignalSession(process.PID(), syscall.SIGTERM)
+	}
+	if force == nil {
+		cleanupTimer := time.NewTimer(250 * time.Millisecond)
+		defer cleanupTimer.Stop()
+		force = cleanupTimer.C
+	}
 	var drainErr error
 	select {
 	case drainErr = <-drained:
-	case <-time.After(250 * time.Millisecond):
+	case <-force:
 		_ = ptyprocess.SignalSession(process.PID(), syscall.SIGKILL)
 		_ = process.Close()
 		drainErr = <-drained

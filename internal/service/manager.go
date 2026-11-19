@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"strings"
@@ -13,7 +14,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/charmbracelet/x/ansi"
 	"github.com/raywcm/taskdock/internal/config"
 	"github.com/raywcm/taskdock/internal/daemon"
 	"github.com/raywcm/taskdock/internal/history"
@@ -58,12 +58,17 @@ func (m *Manager) Resources(ctx context.Context, records []task.Record) map[task
 }
 
 func (m *Manager) List(ctx context.Context) ([]task.Record, error) {
+	records, _, err := m.ListWithWarnings(ctx)
+	return records, err
+}
+
+func (m *Manager) ListWithWarnings(ctx context.Context) ([]task.Record, []error, error) {
 	if m.maintenance {
 		_ = history.Ensure(m.Store)
 	}
-	records, err := m.Store.List(ctx)
+	records, warnings, err := m.Store.ListWithWarnings(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var wg sync.WaitGroup
 	slots := make(chan struct{}, 16)
@@ -82,9 +87,9 @@ func (m *Manager) List(ctx context.Context) ([]task.Record, error) {
 	}
 	wg.Wait()
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return records, nil
+	return records, warnings, nil
 }
 func (m *Manager) Observe(ctx context.Context, r task.Record) task.Record {
 	if r.Runtime == nil {
@@ -112,31 +117,42 @@ func (m *Manager) Observe(ctx context.Context, r task.Record) task.Record {
 }
 func (m *Manager) Resolve(ctx context.Context, ref string) (task.Record, error) {
 	if task.ID(ref).Validate() == nil {
-		if r, err := m.Store.Load(ctx, task.ID(ref)); err == nil {
-			return r, nil
+		if r, err := m.Store.Load(ctx, task.ID(ref)); !errors.Is(err, os.ErrNotExist) {
+			return r, err
 		}
 	}
 	records, err := m.Store.List(ctx)
 	if err != nil {
 		return task.Record{}, err
 	}
-	for _, r := range records {
-		if r.Spec.Name == ref {
-			return r, nil
+	var byName *task.Record
+	for i := range records {
+		if records[i].Spec.Name == ref {
+			byName = &records[i]
+			break
 		}
 	}
-	var matches []task.Record
+	var byPrefix []task.Record
 	if len(ref) >= 4 {
 		for _, r := range records {
 			if strings.HasPrefix(string(r.Spec.ID), ref) {
-				matches = append(matches, r)
+				byPrefix = append(byPrefix, r)
 			}
 		}
 	}
-	if len(matches) == 1 {
-		return matches[0], nil
+	// A task named exactly like another task's ID prefix must not silently
+	// shadow it. Previously the name won, so a prefix lookup could resolve to
+	// the wrong task with no warning.
+	if byName != nil && (len(byPrefix) > 1 || len(byPrefix) == 1 && byPrefix[0].Spec.ID != byName.Spec.ID) {
+		return task.Record{}, fmt.Errorf("reference %q matches a task name and another task's ID prefix; use the full ID", ref)
 	}
-	if len(matches) > 1 {
+	if byName != nil {
+		return *byName, nil
+	}
+	if len(byPrefix) == 1 {
+		return byPrefix[0], nil
+	}
+	if len(byPrefix) > 1 {
 		return task.Record{}, errors.New("ambiguous task ID prefix")
 	}
 	return task.Record{}, fmt.Errorf("task %q not found", ref)
@@ -262,6 +278,15 @@ func (m *Manager) Stop(ctx context.Context, ref string) error {
 	if r.Runtime == nil {
 		return errors.New("task never started")
 	}
+	grace := r.Runtime.StopGrace
+	if grace == 0 {
+		grace = task.DefaultStopGrace
+	}
+	// Leave room for broker IPC and PTY teardown. The broker's advertised
+	// grace applies even when this client has a different environment.
+	const overhead = 3*ipc.Timeout + time.Second
+	ctx, cancel := context.WithTimeout(ctx, min(grace, time.Duration(math.MaxInt64)-overhead)+overhead)
+	defer cancel()
 	if r.Runtime.State == task.Exited || r.Runtime.State == task.Failed {
 		return m.waitRetired(ctx, r.Spec.ID)
 	}
@@ -309,18 +334,35 @@ func (m *Manager) Delete(ctx context.Context, ref string) error {
 		return err
 	}
 	defer unlock()
-	r, err := m.Resolve(ctx, ref)
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	release, err := m.Store.BrokerLock(r.Spec.ID)
-	if err != nil {
+	// An exact ID can address an unreadable record. Keep its broker lock
+	// through both socket cleanup and removal of the task directory.
+	id := task.ID(ref)
+	var release func()
+	exact := id.Validate() == nil
+	if exact {
+		release, err = m.Store.BrokerLock(id)
+	}
+	if !exact || errors.Is(err, os.ErrNotExist) {
+		r, resolveErr := m.Resolve(ctx, ref)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		id = r.Spec.ID
+		release, err = m.Store.BrokerLock(id)
+	}
+	if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
 		return errors.New("task broker is still alive; stop it before deleting")
+	}
+	if err != nil {
+		return err
 	}
 	defer release()
 	// The lock, rather than stale runtime metadata or a reused PID, proves
 	// that no broker owns this record. Delete never signals recorded PIDs.
-	socket, err := ipc.SocketPath(m.Store.Root(), r.Spec.ID)
+	socket, err := ipc.SocketPath(m.Store.Root(), id)
 	if err != nil {
 		return err
 	}
@@ -331,8 +373,10 @@ func (m *Manager) Delete(ctx context.Context, ref string) error {
 		if err := os.Remove(socket); err != nil {
 			return err
 		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
-	return m.Store.Remove(ctx, r.Spec.ID)
+	return m.Store.Remove(ctx, id)
 }
 
 func (m *Manager) Recover(ctx context.Context, ref string) error {
@@ -354,47 +398,4 @@ func (m *Manager) retireOrphan(ctx context.Context, id task.ID) (task.Record, er
 	}
 	defer unlock()
 	return m.Store.RetireOrphan(ctx, id, time.Now())
-}
-
-func (m *Manager) Logs(ctx context.Context, ref string, raw bool, tail int) ([]byte, error) {
-	if tail < 0 {
-		return nil, errors.New("tail must be non-negative")
-	}
-	r, err := m.Resolve(ctx, ref)
-	if err != nil {
-		return nil, err
-	}
-	var data []byte
-	for _, name := range []string{"output.log.1", "output.log"} {
-		file, _ := m.Store.Path(r.Spec.ID, name)
-		info, err := os.Lstat(file)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
-			return nil, errors.New("unsafe output log")
-		}
-		part, err := os.ReadFile(file)
-		if err != nil {
-			return nil, err
-		}
-		data = append(data, part...)
-	}
-	if tail > 0 && len(data) > tail {
-		data = data[len(data)-tail:]
-	}
-	if !raw {
-		data = []byte(ansi.Strip(string(data)))
-		clean := make([]byte, 0, len(data))
-		for _, b := range data {
-			if b >= 32 || b == '\n' || b == '\r' || b == '\t' {
-				clean = append(clean, b)
-			}
-		}
-		data = clean
-	}
-	return data, nil
 }

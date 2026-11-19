@@ -581,11 +581,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			id := m.target
 			m.busy = true
-			return m, func() tea.Msg {
-				ctx, cancel := context.WithTimeout(m.ctx, 5*time.Second)
-				defer cancel()
-				return changed{m.catalog.Stop(ctx, string(id))}
-			}
+			return m, func() tea.Msg { return changed{m.catalog.Stop(m.ctx, string(id))} }
 		}
 		if m.mode == "name-conflict" {
 			yes, done := m.confirmKey(k)

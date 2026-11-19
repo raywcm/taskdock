@@ -40,6 +40,7 @@ type statusScreen struct {
 	noScroll    bool
 	live        bool
 	relay       atomic.Bool
+	follow      atomic.Bool
 	dirty       bool
 	repliesDone chan struct{}
 	replayed    chan struct{}
@@ -193,6 +194,7 @@ func (s *statusScreen) mouseInput(raw []byte) []byte {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.applyFollow()
 	if !s.scrollMouse || s.appMouse.Tracking != 0 {
 		return raw
 	}
@@ -205,9 +207,13 @@ func (s *statusScreen) mouseInput(raw []byte) []byte {
 }
 
 func (s *statusScreen) followLive() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.viewport.Scrolled() {
+	// The renderer holds the screen lock while writing to the terminal.
+	// A slow viewer must not prevent its input reaching other attachments.
+	s.follow.Store(true)
+}
+
+func (s *statusScreen) applyFollow() {
+	if s.follow.Swap(false) && s.viewport.Scrolled() {
 		s.viewport.Reset()
 		s.dirty = true
 	}
@@ -300,6 +306,7 @@ func statusLine(name, memory string, width int) string {
 func (s *statusScreen) draw(ctx context.Context, fd int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.applyFollow()
 	if !s.dirty {
 		return nil
 	}

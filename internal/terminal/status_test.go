@@ -3,6 +3,7 @@ package terminal
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/raywcm/taskdock/internal/protocol"
@@ -114,5 +115,32 @@ func TestApplicationMouseModeTakesOverFromScrollback(t *testing.T) {
 	}
 	if got := s.mouseInput(wheel); string(got) != string(wheel) || s.viewport.Scrolled() {
 		t.Fatal("application wheel event was intercepted")
+	}
+}
+
+func TestFollowLiveDoesNotBlockInputOnAStalledDraw(t *testing.T) {
+	s := newStatusScreen(task.Size{Cols: 20, Rows: 4}, task.Spec{Name: "inline"}, nil)
+	defer s.close()
+	if err := s.feed([]byte("one\r\ntwo\r\nthree\r\nfour")); err != nil {
+		t.Fatal(err)
+	}
+	s.viewport.Scroll(s.e, 1)
+	if !s.viewport.Scrolled() {
+		t.Fatal("fixture did not enter scrollback")
+	}
+	s.mu.Lock()
+	s.dirty = false
+	requested := make(chan struct{})
+	go func() { s.followLive(); close(requested) }()
+	select {
+	case <-requested:
+	case <-time.After(time.Second):
+		s.mu.Unlock()
+		t.Fatal("input waited for the screen lock")
+	}
+	s.applyFollow()
+	s.mu.Unlock()
+	if s.viewport.Scrolled() || !s.dirty {
+		t.Fatal("the next draw did not resume live output")
 	}
 }

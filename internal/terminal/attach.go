@@ -229,6 +229,9 @@ func AttachWithOptions(ctx context.Context, state string, record task.Record, in
 				}
 				if len(data) > 0 || detach {
 					if len(data) > 0 && !readOnly {
+						if display != nil {
+							display.followLive()
+						}
 						if err := session.Send(protocol.Frame{Kind: protocol.Input, Payload: data}); err != nil {
 							events <- event{err: err}
 							return

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"slices"
 	"syscall"
 	"testing"
 	"time"
@@ -14,6 +15,29 @@ import (
 	"github.com/raywcm/taskdock/internal/broker"
 	"github.com/raywcm/taskdock/internal/task"
 )
+
+func TestSessionEnvironmentUsesTrueColorWithSSHXterm(t *testing.T) {
+	const id = task.ID("new")
+	cases := []struct {
+		name string
+		env  []string
+		want []string
+	}{
+		{"SSH xterm", []string{"TERM=xterm-256color", "TDOCK_SESSION=old"}, []string{"TERM=xterm-256color", "COLORTERM=truecolor"}},
+		{"explicit color", []string{"TERM=xterm-256color", "COLORTERM=24bit"}, []string{"TERM=xterm-256color", "COLORTERM=24bit"}},
+		{"no color", []string{"TERM=xterm-256color", "NO_COLOR=1"}, []string{"TERM=xterm-256color", "NO_COLOR=1"}},
+		{"forced profile", []string{"TERM=xterm-256color", "FORCE_COLOR=0"}, []string{"TERM=xterm-256color", "FORCE_COLOR=0"}},
+		{"dumb terminal", []string{"TERM=dumb"}, []string{"TERM=dumb"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			want := append(slices.Clone(c.want), "TDOCK_SESSION=new")
+			if got := sessionEnvironment(c.env, id); !slices.Equal(got, want) {
+				t.Fatalf("environment %q, want %q", got, want)
+			}
+		})
+	}
+}
 
 // A real PTY test: arguments with shell syntax must remain literal arguments,
 // the child sees a tty and its dimensions, and non-zero exit is preserved.

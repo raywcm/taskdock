@@ -204,6 +204,15 @@ func (s *statusScreen) mouseInput(raw []byte) []byte {
 	return nil
 }
 
+func (s *statusScreen) followLive() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.viewport.Scrolled() {
+		s.viewport.Reset()
+		s.dirty = true
+	}
+}
+
 func (s *statusScreen) close() {
 	// End Read before Close changes the dependency's unsynchronized closed flag.
 	_ = s.e.InputPipe().(io.Closer).Close()

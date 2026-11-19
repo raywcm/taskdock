@@ -143,7 +143,7 @@ behavior and terminal extensions.
 
 For applications that use the terminal's normal screen without mouse tracking,
 use the wheel or trackpad in the session or monitor pane to review up to 1,000
-earlier screen lines. Scroll down to return to live output.
+earlier screen lines. Scroll down or type in a session you control to return to live output.
 
 Press **Ctrl+F** in the list or monitor to search running and stopped sessions.
 Words match name, ID, directory and command without case sensitivity. ↑/↓ and

@@ -164,6 +164,50 @@ while True:
     print("PASS inline app scrollback in read-only fullscreen and monitor without injecting wheel input", flush=True)
 
 
+def check_shell_return_from_scrollback(harness):
+    child = r"""
+import os
+import tty
+tty.setraw(0)
+for i in range(80):
+    os.write(1, f"Earlier output {i:03d}\r\n".encode())
+os.write(1, b"AGENT-READY")
+while os.read(0, 1) != b"\x04":
+    pass
+"""
+    shell = (
+        f"{shlex.quote(sys.executable)} -c {shlex.quote(child)}; "
+        "stty sane; printf '\\033[H\\033[2JBASH-RETURNED\\n'; "
+        "exec /bin/bash --noprofile --norc -i"
+    )
+    for view in ("fullscreen", "monitor"):
+        name = "return-" + view
+        ref = harness.create(name, "/bin/bash", "--noprofile", "--norc", "-ic", shell)
+        until(lambda: b"AGENT-READY" in harness.cli("logs", ref).stdout)
+        original = harness.show(ref)["runtime"]
+        pid, fd = harness.spawn_tty(*(() if view == "monitor" else ("attach", ref)))
+        terminal = Terminal()
+        if view == "monitor":
+            wait_view(fd, terminal, lambda text: name in text)
+            os.write(fd, b"v")
+        wait_view(fd, terminal, lambda text: "Earlier output 065" in text
+                  and 1006 << 5 in terminal.current.mode)
+        os.write(fd, b"\x1b[<64;35;8M" * 40)
+        wait_view(fd, terminal, lambda text: "Earlier output 000" in text)
+        os.write(fd, b"\x04")
+        wait_view(fd, terminal, lambda text: "BASH-RETURNED" in text)
+        os.write(fd, b"printf '%s%s\\n' SHELL PROBE\r")
+        wait_view(fd, terminal, lambda text: "SHELLPROBE" in text)
+        assert harness.show(ref)["runtime"] == original
+        os.write(fd, b"\x1b[24~")
+        if view == "monitor":
+            wait_view(fd, terminal, lambda text: name in text and "Control" not in text)
+            os.write(fd, b"q")
+        assert harness.join(pid) == 0
+        harness.cli("stop", ref)
+    print("PASS typing from scrollback follows live output when the agent returns to Bash", flush=True)
+
+
 def check_nesting(harness):
     binary = shlex.quote(str(harness.binary))
     state = shlex.quote(str(harness.state))
@@ -222,6 +266,7 @@ def main():
             harness.cli("settings", "set", "history-retention", "off")
             check_status(harness)
             check_scrollback(harness)
+            check_shell_return_from_scrollback(harness)
             check_nesting(harness)
         finally:
             harness.cleanup()

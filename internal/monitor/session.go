@@ -41,6 +41,7 @@ type Session struct {
 	connection *ipc.Session
 	connected  chan struct{}
 	scroll     int
+	followLive bool
 	viewport   vtscreen.Viewport
 	mouse      vtscreen.MouseModes
 }
@@ -98,9 +99,13 @@ func (s *Session) Input(data []byte) error {
 	case <-s.done:
 		return errors.New("session is unavailable for input")
 	}
-	s.mu.RLock()
+	s.mu.Lock()
 	conn, frame := s.connection, s.frame
-	s.mu.RUnlock()
+	if len(data) > 0 && frame.Scrollable {
+		s.followLive = true
+		s.scroll = 0
+	}
+	s.mu.Unlock()
 	if conn == nil || frame.Ended || frame.Err != nil {
 		return errors.New("session is unavailable for input")
 	}
@@ -146,9 +151,12 @@ func screenFrame(e *vt.Emulator, viewport *vtscreen.Viewport) Frame {
 func (s *Session) publish(e *vt.Emulator, err error, ended bool) {
 	scrollable := !e.IsAltScreen() && s.mouse.Tracking == 0 && e.ScrollbackLen() > 0
 	s.mu.Lock()
-	lines := s.scroll
-	s.scroll = 0
+	lines, follow := s.scroll, s.followLive
+	s.scroll, s.followLive = 0, false
 	s.mu.Unlock()
+	if follow {
+		s.viewport.Reset()
+	}
 	if scrollable {
 		s.viewport.Scroll(e, lines)
 	} else {

@@ -42,14 +42,7 @@ func (Factory) Start(opts broker.SpawnOptions) (broker.Process, error) {
 	// Deliberately not CommandContext: the command lifetime must not follow a client.
 	cmd := exec.Command(opts.Spec.Command[0], opts.Spec.Command[1:]...)
 	cmd.Dir = opts.Spec.Dir
-	// This marker follows shells and subprocesses, including across state roots.
-	// Replace any inherited value instead of creating duplicate environment keys.
-	for _, entry := range opts.Env {
-		if !strings.HasPrefix(entry, "TDOCK_SESSION=") {
-			cmd.Env = append(cmd.Env, entry)
-		}
-	}
-	cmd.Env = append(cmd.Env, "TDOCK_SESSION="+string(opts.Spec.ID))
+	cmd.Env = sessionEnvironment(opts.Env, opts.Spec.ID)
 	// StartWithSize creates a new session and controlling terminal for the child.
 	master, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: opts.Size.Rows, Cols: opts.Size.Cols})
 	if err != nil {
@@ -67,6 +60,31 @@ func (Factory) Start(opts broker.SpawnOptions) (broker.Process, error) {
 	}
 	_ = master.Close()
 	return &Process{cmd: cmd, master: pollMaster}, nil
+}
+
+func sessionEnvironment(env []string, id task.ID) []string {
+	result := make([]string, 0, len(env)+2)
+	var terminal string
+	colorConfigured := false
+	for _, entry := range env {
+		key, value, _ := strings.Cut(entry, "=")
+		switch key {
+		case "TDOCK_SESSION":
+			continue
+		case "TERM":
+			terminal = value
+		case "COLORTERM", "NO_COLOR", "FORCE_COLOR", "CLICOLOR", "CLICOLOR_FORCE":
+			colorConfigured = true
+		}
+		result = append(result, entry)
+	}
+	// SSH commonly forwards TERM alone. Advertise the RGB support of the
+	// TaskDock viewport to apps that use xterm and check COLORTERM.
+	if terminal == "xterm-256color" && !colorConfigured {
+		result = append(result, "COLORTERM=truecolor")
+	}
+	// The new session ID follows shells and subprocesses across state roots.
+	return append(result, "TDOCK_SESSION="+string(id))
 }
 
 func pollableMaster(master *os.File) (*os.File, error) {

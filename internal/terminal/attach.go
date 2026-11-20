@@ -1,12 +1,14 @@
 package terminal
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -26,6 +28,9 @@ import (
 type AttachResult struct {
 	Detached bool
 	ExitCode int
+
+	restoreOutput  bool
+	submittedInput bool
 }
 
 var ErrConnect = errors.New("could not attach to broker")
@@ -47,6 +52,23 @@ func CurrentSize(input *os.File) task.Size {
 // AttachWithOptions opens a separate tty and joins its reader before returning.
 // This prevents it from consuming input intended for the next TUI.
 func AttachWithOptions(ctx context.Context, state string, record task.Record, input, output *os.File, options AttachOptions) (AttachResult, error) {
+	rejoined := false
+	for {
+		result, err := attachOnce(ctx, state, record, input, output, options)
+		if !result.restoreOutput || ctx.Err() != nil || rejoined && !result.submittedInput {
+			return result, err
+		}
+		// A broker left running across an upgrade can still overflow on short
+		// bursts. Restore its viewport from the log once per submitted command,
+		// without resending input or taking over any newer attachment.
+		rejoined = true
+		if options.Mode == protocol.AttachTakeover {
+			options.Mode = protocol.AttachShared
+		}
+	}
+}
+
+func attachOnce(ctx context.Context, state string, record task.Record, input, output *os.File, options AttachOptions) (AttachResult, error) {
 	if record.Runtime == nil {
 		return AttachResult{}, errors.New("task has not started")
 	}
@@ -127,6 +149,7 @@ func AttachWithOptions(ctx context.Context, state string, record task.Record, in
 		}
 	}
 	var result AttachResult
+	var submittedInput bool
 	titleActive := false
 	err = WithRaw(tty, func() error {
 		attachCtx, cancel := context.WithCancel(ctx)
@@ -236,6 +259,7 @@ func AttachWithOptions(ctx context.Context, state string, record task.Record, in
 							events <- event{err: err}
 							return
 						}
+						submittedInput = submittedInput || bytes.ContainsAny(data, "\r\n")
 					}
 					if detach {
 						// Closing after selecting this event is itself a detach. Sending
@@ -300,10 +324,13 @@ func AttachWithOptions(ctx context.Context, state string, record task.Record, in
 				case protocol.Error:
 					err := ipc.FrameError(frame)
 					var remote *ipc.RemoteError
+					var restoreOutput bool
 					if errors.As(err, &remote) && remote.Code == "taken_over" {
 						err = errors.New(locale.Text("taken_over"))
+					} else if remote != nil && remote.Code == "slow_client" && display != nil {
+						restoreOutput = !slices.Contains(session.Welcome.Capabilities, protocol.OutputByteQueueCapability)
 					}
-					events <- event{err: err}
+					events <- event{result: AttachResult{restoreOutput: restoreOutput}, err: err}
 					return
 				case protocol.Notice:
 					var notice protocol.NoticeMessage
@@ -416,6 +443,7 @@ func AttachWithOptions(ctx context.Context, state string, record task.Record, in
 		}
 		return failure
 	})
+	result.submittedInput = submittedInput
 	// termios restoration must precede this ANSI cleanup. TUI will start only after
 	// all readers exit. These cover common app modes without parsing live output.
 	cleanupErr := ResetModes(output)

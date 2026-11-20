@@ -396,7 +396,10 @@ func (s *server) serve(conn *net.UnixConn) {
 		replay = "initial"
 	}
 	size := s.size
-	welcome := protocol.WelcomeMessage{TaskID: current.TaskID, InstanceID: current.InstanceID, Replay: replay, Capabilities: []string{protocol.AttachModesCapability}, Size: &size}
+	welcome := protocol.WelcomeMessage{
+		TaskID: current.TaskID, InstanceID: current.InstanceID, Replay: replay, Size: &size,
+		Capabilities: []string{protocol.AttachModesCapability, protocol.OutputByteQueueCapability},
+	}
 	if sub != nil {
 		welcome.AttachMode = mode
 		welcome.SizeOwner = s.hub.OwnsSize(sub)
@@ -416,7 +419,7 @@ func (s *server) serve(conn *net.UnixConn) {
 				select {
 				case <-s.finished:
 					// Preserve queued final bytes before Exit.
-					for data := range sub.Output {
+					for data := sub.TakeOutput(); len(data) > 0; data = sub.TakeOutput() {
 						if wire.Send(protocol.Frame{Kind: protocol.Output, Payload: data}) != nil {
 							return
 						}
@@ -445,12 +448,9 @@ func (s *server) serve(conn *net.UnixConn) {
 				case <-sub.Done:
 					finish()
 					return
-				case data, ok := <-sub.Output:
-					if !ok {
-						finish()
-						return
-					}
-					if wire.Send(protocol.Frame{Kind: protocol.Output, Payload: data}) != nil {
+				case <-sub.OutputReady:
+					data := sub.TakeOutput()
+					if len(data) > 0 && wire.Send(protocol.Frame{Kind: protocol.Output, Payload: data}) != nil {
 						return
 					}
 				case notice := <-sub.Notices:

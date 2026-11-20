@@ -3,9 +3,10 @@ package broker
 import (
 	"bytes"
 	"errors"
-	"github.com/raywcm/taskdock/internal/protocol"
 	"sync"
 	"testing"
+
+	"github.com/raywcm/taskdock/internal/protocol"
 )
 
 func TestDisconnectAndReattach(t *testing.T) {
@@ -28,7 +29,7 @@ func TestDisconnectAndReattach(t *testing.T) {
 	want := bytes.Clone(payload)
 	hub.Publish(payload)
 	payload[0] = 'X'
-	if got := <-second.Output; !bytes.Equal(got, want) {
+	if got := second.TakeOutput(); !bytes.Equal(got, want) {
 		t.Fatalf("output changed: %q", got)
 	}
 	hub.Close()
@@ -40,7 +41,7 @@ func TestDisconnectAndReattach(t *testing.T) {
 func TestSlowClientDoesNotBlockPublish(t *testing.T) {
 	var hub Hub
 	sub, _ := hub.Attach()
-	data := bytes.Repeat([]byte{'x'}, OutputChunkSize*(OutputQueueDepth+2))
+	data := bytes.Repeat([]byte{'x'}, outputQueueBytes+1)
 	hub.Publish(data)
 	select {
 	case <-sub.Done:
@@ -83,7 +84,7 @@ func TestInitialCaptureCoalescesAndNeverReplaysOnReconnect(t *testing.T) {
 	if !first.Initial {
 		t.Fatal("missing startup buffer")
 	}
-	if got := <-first.Output; len(got) != 10000 {
+	if got := first.TakeOutput(); len(got) != 10000 {
 		t.Fatalf("startup bytes: %d", len(got))
 	}
 	hub.Detach(first)
@@ -96,7 +97,7 @@ func TestInitialCaptureCoalescesAndNeverReplaysOnReconnect(t *testing.T) {
 		t.Fatal("replayed after reconnect")
 	}
 	select {
-	case <-second.Output:
+	case <-second.OutputReady:
 		t.Fatal("unexpected history")
 	default:
 	}
@@ -127,7 +128,7 @@ func TestTakeoverPreservesReadersAndRevokesAllWriters(t *testing.T) {
 	payload := []byte("\x1b[31m共同查看\x00\xff")
 	h.Publish(payload)
 	for _, s := range []*Subscription{reader, replacement} {
-		if got := <-s.Output; !bytes.Equal(got, payload) {
+		if got := s.TakeOutput(); !bytes.Equal(got, payload) {
 			t.Fatalf("fanout changed bytes: %q", got)
 		}
 	}
@@ -160,16 +161,58 @@ func TestSlowReaderDoesNotEvictHealthyWriter(t *testing.T) {
 	var h Hub
 	writer, _ := h.Attach()
 	reader, _ := h.AttachMode(protocol.AttachReadOnly, false)
-	for range OutputQueueDepth + 2 {
-		h.Publish([]byte("data"))
-		if got := <-writer.Output; string(got) != "data" {
+	data := bytes.Repeat([]byte{'x'}, OutputChunkSize)
+	for range outputQueueBytes/OutputChunkSize + 1 {
+		h.Publish(data)
+		if got := writer.TakeOutput(); !bytes.Equal(got, data) {
 			t.Fatal("writer lost output")
 		}
 	}
-	if reader.Reason().Code != "slow_client" || !h.CanInput(writer) {
-		t.Fatal("a slow observer affected the writer")
+	select {
+	case <-reader.Done:
+		if reader.Reason().Code != "slow_client" || !h.CanInput(writer) {
+			t.Fatal("a slow observer affected the writer")
+		}
+	default:
+		t.Fatal("observer exceeded its byte budget without disconnecting")
 	}
 	h.Close()
+}
+
+func TestShortOutputBurstStaysAttachedAndPreservesBytes(t *testing.T) {
+	var h Hub
+	sub, err := h.Attach()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+	line := []byte("\x1b[34m目录-0123456789012345678901234567890123456789\x1b[0m\r\n")
+	for range 700 {
+		// Keep the viewer paused while a directory listing arrives as short
+		// reads. The previous frame-count cap disconnected it at 64 reads.
+		h.Publish(line[:8])
+		h.Publish(line[8:])
+	}
+	if !h.CanInput(sub) {
+		t.Fatal("attached viewer was dropped below the byte budget")
+	}
+	want := bytes.Repeat(line, 700)
+	var got []byte
+	for len(got) < len(want) {
+		select {
+		case <-sub.OutputReady:
+			chunk := sub.TakeOutput()
+			if len(chunk) == 0 || len(chunk) > OutputChunkSize {
+				t.Fatalf("invalid output chunk size: %d", len(chunk))
+			}
+			got = append(got, chunk...)
+		default:
+			t.Fatal("queued bytes failed to signal readiness")
+		}
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("short reads were reordered or changed")
+	}
 }
 
 func TestConcurrentTakeoverPublishAndStaleInputChecks(t *testing.T) {

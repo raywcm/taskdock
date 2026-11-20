@@ -10,7 +10,7 @@ import (
 
 const (
 	OutputChunkSize  = 32 * 1024
-	OutputQueueDepth = 64 // At most 2 MiB of queued output per attachment.
+	outputQueueBytes = 2 * 1024 * 1024
 )
 
 var (
@@ -20,20 +20,76 @@ var (
 
 // Subscription is a lease. A stale disconnect must never evict a replacement.
 type Subscription struct {
-	Output  <-chan []byte
-	Notices <-chan protocol.NoticeMessage
-	Done    <-chan struct{}
-	queue   chan []byte
-	notices chan protocol.NoticeMessage
-	done    chan struct{}
-	reason  protocol.ErrorMessage // Published before Done closes.
-	Mode    string
-	Initial bool
-	serial  uint64
-	modern  bool
+	OutputReady <-chan struct{}
+	Notices     <-chan protocol.NoticeMessage
+	Done        <-chan struct{}
+	outputMu    sync.Mutex
+	ready       chan struct{}
+	queue       [][]byte
+	queuedBytes int
+	notices     chan protocol.NoticeMessage
+	done        chan struct{}
+	reason      protocol.ErrorMessage // Published before Done closes.
+	Mode        string
+	Initial     bool
+	serial      uint64
+	modern      bool
 }
 
 func (s *Subscription) Reason() protocol.ErrorMessage { <-s.Done; return s.reason }
+
+func (s *Subscription) signalOutput() {
+	select {
+	case s.ready <- struct{}{}:
+	default:
+	}
+}
+
+// TakeOutput drains the next chunk, if available. Taking ownership of the
+// entire chunk lets the producer continue appending without sharing its bytes.
+func (s *Subscription) TakeOutput() []byte {
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
+	if len(s.queue) == 0 {
+		return nil
+	}
+	data := s.queue[0]
+	s.queue[0] = nil
+	s.queuedBytes -= len(data)
+	if len(s.queue) == 1 {
+		s.queue = s.queue[:0]
+	} else {
+		s.queue = s.queue[1:]
+		s.signalOutput()
+	}
+	return data
+}
+
+func (s *Subscription) enqueue(data []byte) bool {
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
+	if len(data) > outputQueueBytes-s.queuedBytes {
+		return false
+	}
+	s.queuedBytes += len(data)
+	s.queue = appendOutput(s.queue, data)
+	s.signalOutput()
+	return true
+}
+
+func appendOutput(queue [][]byte, data []byte) [][]byte {
+	if last := len(queue) - 1; last >= 0 && len(queue[last]) < OutputChunkSize {
+		count := min(len(data), OutputChunkSize-len(queue[last]))
+		queue[last] = append(queue[last], data[:count]...)
+		data = data[count:]
+	}
+	for len(data) != 0 {
+		count := min(len(data), OutputChunkSize)
+		queue = append(queue, append([]byte(nil), data[:count]...))
+		data = data[count:]
+	}
+	return queue
+}
 
 type Hub struct {
 	mu          sync.Mutex
@@ -67,13 +123,17 @@ func (h *Hub) AttachMode(mode string, modern bool) (*Subscription, error) {
 			}
 		}
 	}
-	q, notices, done := make(chan []byte, OutputQueueDepth), make(chan protocol.NoticeMessage, 8), make(chan struct{})
+	ready, notices, done := make(chan struct{}, 1), make(chan protocol.NoticeMessage, 8), make(chan struct{})
 	h.serial++
-	s := &Subscription{Output: q, Notices: notices, Done: done, queue: q, notices: notices, done: done, Mode: mode, serial: h.serial, modern: modern}
-	for _, p := range h.pending {
-		q <- p
+	s := &Subscription{
+		OutputReady: ready, Notices: notices, Done: done,
+		ready: ready, notices: notices, done: done,
+		queue: h.pending, queuedBytes: h.pendingSize,
+		Mode: mode, serial: h.serial, modern: modern, Initial: h.pendingSize > 0,
 	}
-	s.Initial = len(h.pending) > 0
+	if s.Initial {
+		s.signalOutput()
+	}
 	h.pending = nil
 	h.pendingSize = 0
 	h.capture = false
@@ -129,42 +189,25 @@ func (h *Hub) NotifySize() {
 func (h *Hub) Publish(p []byte) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.closed {
+	if h.closed || len(p) == 0 {
 		return
 	}
 	if len(h.members) == 0 && h.capture {
-		if h.pendingSize+len(p) > OutputChunkSize*OutputQueueDepth {
+		if len(p) > outputQueueBytes-h.pendingSize {
 			h.pending = nil
 			h.pendingSize = 0
 			h.capture = false
 			return
 		}
-		for len(p) > 0 {
-			n := min(len(p), OutputChunkSize)
-			last := len(h.pending) - 1
-			if last >= 0 && len(h.pending[last]) < OutputChunkSize {
-				n = min(n, OutputChunkSize-len(h.pending[last]))
-				h.pending[last] = append(h.pending[last], p[:n]...)
-			} else {
-				h.pending = append(h.pending, append([]byte(nil), p[:n]...))
-			}
-			h.pendingSize += n
-			p = p[n:]
-		}
+		h.pending = appendOutput(h.pending, p)
+		h.pendingSize += len(p)
 		return
 	}
 	changed := false
-	for len(p) > 0 && len(h.members) > 0 {
-		n := min(len(p), OutputChunkSize)
-		chunk := append([]byte(nil), p[:n]...)
-		p = p[n:]
-		for s := range h.members {
-			select {
-			case s.queue <- chunk:
-			default:
-				h.disconnect(s, "slow_client", "output queue overflow")
-				changed = true
-			}
+	for s := range h.members {
+		if !s.enqueue(p) {
+			h.disconnect(s, "slow_client", "output queue overflow")
+			changed = true
 		}
 	}
 	if changed {
@@ -182,7 +225,6 @@ func (h *Hub) Close() {
 func (h *Hub) disconnect(s *Subscription, code, message string) {
 	delete(h.members, s)
 	s.reason = protocol.ErrorMessage{Code: code, Message: message}
-	close(s.queue)
 	close(s.done)
 	if h.owner == s {
 		h.owner = nil

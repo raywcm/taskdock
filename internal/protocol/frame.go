@@ -135,11 +135,12 @@ type WelcomeMessage struct {
 }
 
 const (
-	AttachModesCapability = "attach-modes-v1"
-	AttachExclusive       = "exclusive"
-	AttachTakeover        = "takeover"
-	AttachReadOnly        = "readonly"
-	AttachShared          = "shared"
+	AttachModesCapability     = "attach-modes-v1"
+	OutputByteQueueCapability = "output-byte-queue-v1"
+	AttachExclusive           = "exclusive"
+	AttachTakeover            = "takeover"
+	AttachReadOnly            = "readonly"
+	AttachShared              = "shared"
 )
 
 func ValidAttachMode(mode string) bool {

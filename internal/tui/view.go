@@ -218,12 +218,16 @@ func (m model) detail(width int) string {
 	return ansi.Truncate(line, width, "…")
 }
 func (m model) status(width int) string {
-	if m.err != nil {
+	err := m.loadErr
+	if err == nil {
+		err = m.err
+	}
+	if err != nil {
 		var remote *ipc.RemoteError
-		if errors.As(m.err, &remote) && remote.Code == "unsupported_attach_mode" {
+		if errors.As(err, &remote) && remote.Code == "unsupported_attach_mode" {
 			return ansi.Truncate(m.locale().Text("unsupported_attach_mode"), width, "…")
 		}
-		return ansi.Truncate(m.locale().Text("error")+": "+safe(m.err.Error()), width, "…")
+		return ansi.Truncate(m.locale().Text("error")+": "+safe(err.Error()), width, "…")
 	}
 	if m.busy {
 		return m.locale().Text("working")
@@ -356,7 +360,7 @@ func (m model) View() tea.View {
 	p := m.palette()
 	var lines []string
 	showMonitor := false
-	if m.width < 26 || m.height < 9 {
+	if m.tooSmall() {
 		lines = []string{m.header(width), t("small_window"), "q " + t("quit")}
 	} else if m.mode == "tmux" || m.mode == "tmux-view" {
 		lines = m.tmuxLines(width)
@@ -419,7 +423,7 @@ func (m model) View() tea.View {
 		lines = lines[:m.height]
 	}
 	for i, line := range lines {
-		line = "  " + ansi.Truncate(line, max(1, m.width-4), "…")
+		line = strings.Repeat(" ", min(2, m.width-1)) + ansi.Truncate(line, max(1, m.width-4), "…")
 		theme := m.resolvedTheme()
 		if theme == "light" || theme == "dark" {
 			base := "\x1b[0m\x1b[38;2;229;237;247m\x1b[48;2;20;26;38m"
@@ -446,7 +450,7 @@ func (m model) View() tea.View {
 		lines[i] = line
 	}
 	content := strings.Join(lines, "\n")
-	if m.hasDialog() {
+	if m.hasDialog() && !m.tooSmall() {
 		content = m.dialog(content)
 	}
 	view := tea.NewView(content)

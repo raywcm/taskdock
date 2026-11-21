@@ -70,6 +70,20 @@ def main():
             assert h.join(pid) == 0
             assert native('has-session', '-t', target) == b''
             assert b'THIS_INPUT_MUST_STAY_PRIVATE' not in native('capture-pane', '-p', '-t', target + ':')
+
+            pid, fd = h.spawn_tty()
+            wait_output(fd, b'TaskDock')
+            os.write(fd, b't')
+            wait_output(fd, b'real-work')
+            os.write(fd, b'\r')
+            wait_output(fd, b'LIVE_PANE_UPDATE')
+            native('kill-session', '-t', target)
+            wait_output(fd, b'unrelated')
+            native('send-keys', '-t', 'unrelated', 'echo REMAINING_PANE', 'Enter')
+            os.write(fd, b'\r')
+            wait_output(fd, b'REMAINING_PANE')
+            os.write(fd, b'\x03')
+            assert h.join(pid) == 0
         finally:
             h.cleanup()
             if created:

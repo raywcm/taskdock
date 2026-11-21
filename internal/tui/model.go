@@ -83,7 +83,7 @@ type model struct {
 	tasks                                []task.Record
 	cursors                              [2]int
 	tab                                  int
-	err                                  error
+	err, loadErr                         error
 	selected                             Selection
 	ready                                bool
 	width, height                        int
@@ -177,6 +177,8 @@ func (m model) locale() i18n.Locale {
 func active(r task.Record) bool {
 	return r.Runtime != nil && (r.Runtime.State == task.Running || r.Runtime.State == task.Starting || r.Runtime.State == task.Stopping)
 }
+func (m model) tooSmall() bool { return m.width < 26 || m.height < 9 }
+
 func (m model) rows(tab int) []task.Record {
 	if tab < tabRunning || tab > tabStop {
 		return nil
@@ -189,6 +191,17 @@ func (m model) rows(tab int) []task.Record {
 	}
 	return rows
 }
+
+// Keep a selection on its record across reorders, or on the nearest row if it disappeared.
+func refreshedCursor(rows []task.Record, id task.ID, cursor int) int {
+	for i, r := range rows {
+		if r.Spec.ID == id {
+			return i
+		}
+	}
+	return min(cursor, max(0, len(rows)-1))
+}
+
 func (m model) current() (task.Record, bool) {
 	if m.tab == tabSettings {
 		return task.Record{}, false
@@ -263,7 +276,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	next, cmd := m.update(msg)
 	updated := next.(model)
 	if updated.monitorInput != nil {
-		updated.monitorInput.Arm(updated.tab == tabRunning && !updated.monitoring && updated.mode == "" && !updated.busy)
+		updated.monitorInput.Arm(updated.tab == tabRunning && !updated.monitoring && updated.mode == "" && !updated.busy && !updated.tooSmall())
 		if updated.monitoring {
 			left, width, height := updated.monitorGeometry()
 			updated.monitorInput.SetScrollArea(left+5, 5, left+5+width, 5+height)
@@ -415,8 +428,8 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.loading = false
+		m.loadErr = msg.err
 		if msg.err != nil {
-			m.err = msg.err
 			m.ready = true
 			return m, nil
 		}
@@ -427,7 +440,17 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				ids[tab] = rows[m.cursors[tab]].Spec.ID
 			}
 		}
+		var searchID task.ID
+		if m.mode == "search" {
+			rows := m.searchRows()
+			if m.searchCursor < len(rows) {
+				searchID = rows[m.searchCursor].Spec.ID
+			}
+		}
 		m.tasks, m.ready = msg.tasks, true
+		if m.mode == "search" {
+			m.searchCursor = refreshedCursor(m.searchRows(), searchID, m.searchCursor)
+		}
 		m.shortIDs = task.ShortIDs(m.tasks)
 		m.now = time.Now()
 		if m.initial != "" && m.tab != tabSettings {
@@ -435,13 +458,15 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.initial = ""
 		}
 		for tab := range 2 {
-			rows := m.rows(tab)
-			m.cursors[tab] = min(m.cursors[tab], max(0, len(rows)-1))
-			for i, r := range rows {
-				if r.Spec.ID == ids[tab] {
-					m.cursors[tab] = i
-					break
-				}
+			m.cursors[tab] = refreshedCursor(m.rows(tab), ids[tab], m.cursors[tab])
+		}
+		// A refresh can observe the child exit before the final monitor frame.
+		// Keep typing bound to the original session until the user selects another.
+		if m.monitoring && ids[tabRunning] != "" {
+			selected, ok := m.current()
+			if !ok || selected.Spec.ID != ids[tabRunning] {
+				m.monitoring = false
+				m.closeMonitor()
 			}
 		}
 		return m, m.syncMonitor()
@@ -478,9 +503,20 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, tickCmd())
 	case tea.WindowSizeMsg:
 		changed := m.width != msg.Width || m.height != msg.Height
+		atHistoryEnd := m.mode == "history" && m.history.y == max(0, len(m.history.lines)-m.historyHeight())
 		m.width, m.height = max(1, msg.Width), max(1, msg.Height)
-		m.input.SetWidth(max(4, min(68, m.width-6)-9))
-		if m.monitorSession != nil {
+		if m.mode == "search" {
+			m.input.SetWidth(max(4, min(68, m.width-12)))
+		} else {
+			m.input.SetWidth(max(4, min(68, m.width-6)-9))
+		}
+		if m.mode == "history" {
+			if atHistoryEnd {
+				m.history.y = max(0, len(m.history.lines)-m.historyHeight())
+			}
+			m.clampHistory()
+		}
+		if changed && m.monitorSession != nil && m.width >= 50 && m.height >= 12 {
 			m.monitorSession.Resize(m.monitorSize())
 		}
 		cmd := m.syncMonitor()
@@ -489,12 +525,21 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	case tea.PasteMsg:
+		if m.tooSmall() {
+			return m, nil
+		}
 		if m.monitoring && m.mode == "" && m.monitorInput != nil && m.monitorFrame.Err == nil {
 			m.monitorInput.forward([]byte("\x1b[200~" + msg.Content + "\x1b[201~"))
 			return m, nil
 		}
 	case tea.KeyPressMsg:
 		k := msg.String()
+		if m.tooSmall() {
+			if k == "q" || k == "ctrl+c" {
+				return m.quit()
+			}
+			return m, nil
+		}
 		if m.mode == "tmux" || m.mode == "tmux-view" {
 			return m.tmuxKey(k)
 		}

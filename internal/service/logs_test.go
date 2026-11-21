@@ -82,3 +82,49 @@ func TestFollowStartsWithSameRetainedTailAsLogs(t *testing.T) {
 		}
 	}
 }
+
+// Rotate twice while the follower is writing its initial snapshot. The middle
+// generation is still retained on disk when the follower resumes.
+func TestFollowDrainsStillRetainedIntermediateLog(t *testing.T) {
+	ctx := context.Background()
+	m, err := New(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := nameRecord("rapid")
+	if err := m.Store.Create(ctx, r.Spec); err != nil {
+		t.Fatal(err)
+	}
+	done := 0
+	if err := m.Store.SaveRuntime(ctx, task.Runtime{SchemaVersion: 1, TaskID: r.Spec.ID, InstanceID: r.Spec.ID, State: task.Exited, ExitCode: &done, UpdatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	path, _ := m.Store.Path(r.Spec.ID, "output.log")
+	if err := os.WriteFile(path, []byte("first"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var got bytes.Buffer
+	w := logWriterFunc(func(b []byte) (int, error) {
+		if got.Len() == 0 {
+			for _, s := range []string{"-middle", "-last"} {
+				if err := os.Rename(path, path+".1"); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(s), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		return got.Write(b)
+	})
+	if err := m.FollowLogs(ctx, r.Spec.Name, true, 0, w); err != nil {
+		t.Fatal(err)
+	}
+	if got.String() != "first-middle-last" {
+		t.Fatal(got.String())
+	}
+}
+
+type logWriterFunc func([]byte) (int, error)
+
+func (f logWriterFunc) Write(p []byte) (int, error) { return f(p) }

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"syscall"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
@@ -45,14 +46,8 @@ func (m *Manager) Logs(ctx context.Context, ref string, raw bool, tail int) ([]b
 	for cut && len(data) > 0 && !utf8.RuneStart(data[0]) {
 		data = data[1:]
 	}
-	data = []byte(ansi.Strip(string(data)))
-	clean := data[:0]
-	for _, b := range data {
-		if b >= 32 || b == '\n' || b == '\r' || b == '\t' {
-			clean = append(clean, b)
-		}
-	}
-	return clean, nil
+	var filter logFilter
+	return filter.clean(data), nil
 }
 
 func readLogSnapshot(path string, tail int64) ([]byte, bool, error) {
@@ -133,4 +128,42 @@ func openLogSnapshot(path string) (*os.File, os.FileInfo, error) {
 		return nil, nil, err
 	}
 	return f, info, nil
+}
+
+// Both log readers use the same streaming terminal parser. It retains partial
+// UTF-8 characters and control strings across read and rotation boundaries.
+type logFilter struct {
+	parser *ansi.Parser
+	text   []byte
+}
+
+func (f *logFilter) clean(data []byte) []byte {
+	if len(data) == 0 {
+		return nil
+	}
+	if f.parser == nil {
+		// Strip control strings without buffering their payloads.
+		f.parser = new(ansi.Parser)
+		f.parser.SetParamsSize(1)
+		f.parser.SetDataSize(1)
+		f.parser.SetHandler(ansi.Handler{
+			Print: func(r rune) {
+				if !unicode.IsControl(r) {
+					f.text = utf8.AppendRune(f.text, r)
+				}
+			},
+			Execute: func(b byte) {
+				if b == '\n' || b == '\r' || b == '\t' {
+					f.text = append(f.text, b)
+				}
+			},
+		})
+	}
+	f.text = make([]byte, 0, len(data))
+	for _, b := range data {
+		f.parser.Advance(b)
+	}
+	text := f.text
+	f.text = nil
+	return text
 }

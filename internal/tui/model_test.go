@@ -954,3 +954,18 @@ func TestAutomaticThemeMatchesExplicitTheme(t *testing.T) {
 		t.Fatal("terminal background overrode the explicit choice")
 	}
 }
+
+func TestRefreshClearsTransientCatalogErrorOnly(t *testing.T) {
+	m := readyModel(t)
+	m.err = fmt.Errorf("rename failed")
+	n, _ := m.Update(loaded{err: fmt.Errorf("catalog unavailable"), generation: m.generation})
+	m = n.(model)
+	if got := m.status(100); !strings.Contains(got, "catalog unavailable") {
+		t.Fatal(got)
+	}
+	n, _ = m.Update(loaded{tasks: m.tasks, generation: m.generation})
+	m = n.(model)
+	if got := m.status(100); !strings.Contains(got, "rename failed") || strings.Contains(got, "catalog unavailable") {
+		t.Fatalf("wrong status after recovery: %s", got)
+	}
+}

@@ -101,3 +101,66 @@ func TestSearchFromListUsesEnterToAttachAndIgnoresCtrlEnter(t *testing.T) {
 		t.Fatal("search Enter did not follow list attach behavior")
 	}
 }
+
+func TestRefreshPreservesSearchAndEndsMissingMonitor(t *testing.T) {
+	m := readyModel(t)
+	target := m.tasks[1].Spec.ID
+	m.openSearch()
+	m, _ = press(m, tea.KeyDown)
+	n, _ := m.Update(loaded{tasks: []task.Record{m.tasks[1], m.tasks[0]}, generation: m.generation})
+	m = n.(model)
+	m, _ = press(m, tea.KeyEnter)
+	if m.selected.ID != target {
+		t.Errorf("search attached to %s after reorder, want %s", m.selected.ID, target)
+	}
+	m = readyModel(t)
+	m, _ = press(m, 'v')
+	n, _ = m.Update(loaded{tasks: m.tasks[1:], generation: m.generation})
+	m = n.(model)
+	if m.monitoring || m.monitorID != "" {
+		t.Fatalf("monitor followed another session %s", m.monitorID)
+	}
+}
+
+func TestTinyWindowBlocksHiddenActionsAndFitsViewport(t *testing.T) {
+	m := readyModel(t)
+	m, _ = press(m, 's')
+	n, _ := m.Update(tea.WindowSizeMsg{Width: 1, Height: 2})
+	m = n.(model)
+	m, cmd := press(m, 'y')
+	if m.busy || m.mode != "stop" {
+		t.Fatal("acted on an invisible confirmation")
+	}
+	noAction(t, cmd)
+	for _, line := range strings.Split(m.View().Content, "\n") {
+		if ansi.StringWidth(line) > 1 {
+			t.Fatalf("one-column window overflow: %q", line)
+		}
+	}
+	m, _ = press(m, 'q')
+	if !m.quitting {
+		t.Fatal("advertised quit key did not exit")
+	}
+}
+
+func TestHistoryResizeClampsViewportBeforeNextNavigation(t *testing.T) {
+	m := readyModel(t)
+	m.mode = "history"
+	m.history = historyState{ready: true, maxWidth: 150, lines: make([]string, 100), x: 78, y: 81}
+	n, _ := m.Update(tea.WindowSizeMsg{Width: 200, Height: 88})
+	m = n.(model)
+	if m.history.x != 0 || m.history.y != 17 {
+		t.Fatalf("stale history offset after grow: %d,%d", m.history.x, m.history.y)
+	}
+	n, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+	m = n.(model)
+	if m.history.y != 81 {
+		t.Fatalf("latest output scrolled offscreen after shrink: %d", m.history.y)
+	}
+	n, _ = m.Update(tea.WindowSizeMsg{Width: 200, Height: 88})
+	m = n.(model)
+	m, _ = press(m, tea.KeyUp)
+	if m.history.y != 16 {
+		t.Fatalf("first key after resize did not move: %d", m.history.y)
+	}
+}

@@ -21,6 +21,7 @@
     "version": "版本",
     "detach_short": "返回",
     "loading": "正在加载会话…",
+    "empty_tmux": "暂无 tmux 会话。",
     "empty_running": "暂无运行中的会话，按 n 新建 Shell。",
     "empty_stop": "暂无已停止的会话。",
     "session": "会话",

@@ -17,6 +17,7 @@
     "version": "Version",
     "detach_short": "retour",
     "loading": "Chargement des sessions…",
+    "empty_tmux": "Aucune session tmux.",
     "empty_running": "Aucune session en cours. Appuyez sur n pour créer un shell.",
     "empty_stop": "Aucune session arrêtée.",
     "session": "Session",

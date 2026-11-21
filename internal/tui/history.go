@@ -90,9 +90,13 @@ func (m model) historyKey(key string) (tea.Model, tea.Cmd) {
 	case "right", "l":
 		m.history.x += 8
 	}
+	m.clampHistory()
+	return m, nil
+}
+
+func (m *model) clampHistory() {
 	m.history.y = max(0, min(m.history.y, max(0, len(m.history.lines)-m.historyHeight())))
 	m.history.x = max(0, min(m.history.x, max(0, m.history.maxWidth-max(1, m.width-4))))
-	return m, nil
 }
 func (m model) historyView(width int) []string {
 	t, p := m.locale().Text, m.palette()

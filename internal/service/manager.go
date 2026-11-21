@@ -184,7 +184,9 @@ func (m *Manager) Create(ctx context.Context, name string, argv []string, dir st
 	}
 	for _, r := range records {
 		if r.Spec.Name == name {
-			return task.Record{}, &NameConflictError{Name: name, Suggestion: SuggestedName(records, name, "")}
+			// Preserve the exact name match for new -A, even when the name
+			// is also the full ID or ID prefix of another task.
+			return r, &NameConflictError{Name: name, Suggestion: SuggestedName(records, name, "")}
 		}
 	}
 	if err := m.Store.Create(ctx, spec); err != nil {

@@ -19,6 +19,10 @@ def main():
    sentinel=pathlib.Path(root)/'must-not-run'
    reused=json.loads(h.cli('new','-Ad','-s','work','--json',f'touch {sentinel}').stdout)
    assert reused['spec']['id']==ref and reused['runtime']['child_pid']==before['child_pid'] and not sentinel.exists()
+   for label in (ref,ref[:8]):
+    named=h.create(label,'/bin/sh','-c','read value')
+    result=h.cli('new','-Ads',label)
+    assert result.stdout.strip().decode()==named,('reused wrong session',label,named,result.stdout)
    def reuse(_):return h.cli('new','-Ads','raced','--','/bin/sh','-c','read value').stdout.strip()
    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:ids=list(pool.map(reuse,range(4)))
    assert len(set(ids))==1,ids

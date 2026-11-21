@@ -231,10 +231,6 @@ func NewRoot() *cobra.Command {
 			if !reuse || !errors.As(err, &collision) {
 				return err
 			}
-			r, err = m.Resolve(cmd.Context(), name)
-			if err != nil {
-				return err
-			}
 			r = m.Observe(cmd.Context(), r)
 			if r.Health != "online" || r.Runtime == nil || r.Runtime.State != task.Running {
 				return errors.New("session is not running; use another name or inspect its history")

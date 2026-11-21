@@ -11,64 +11,6 @@ import (
 	"github.com/raywcm/taskdock/internal/task"
 )
 
-// logFilter retains ANSI parsing state only for safe log display, never for the
-// live terminal stream. It handles sequences split across follow reads.
-type logFilter struct{ state byte }
-
-func (f *logFilter) clean(p []byte) []byte {
-	out := make([]byte, 0, len(p))
-	for _, b := range p {
-		switch f.state {
-		case 0:
-			if b == 27 {
-				f.state = 1
-			} else if b >= 32 || b == '\n' || b == '\r' || b == '\t' {
-				out = append(out, b)
-			}
-		case 1:
-			switch b {
-			case '[':
-				f.state = 2
-			case ']':
-				f.state = 3
-			case 'P', 'X', '^', '_':
-				f.state = 4
-			default:
-				if b >= 0x20 && b <= 0x2f {
-					f.state = 6
-				} else {
-					f.state = 0
-				}
-			}
-		case 2:
-			if b >= 0x40 && b <= 0x7e {
-				f.state = 0
-			}
-		case 3:
-			if b == 7 {
-				f.state = 0
-			} else if b == 27 {
-				f.state = 5
-			}
-		case 4:
-			if b == 27 {
-				f.state = 5
-			}
-		case 5:
-			if b == '\\' {
-				f.state = 0
-			} else if b != 27 {
-				f.state = 4
-			}
-		case 6:
-			if b >= 0x30 && b <= 0x7e {
-				f.state = 0
-			}
-		}
-	}
-	return out
-}
-
 func (m *Manager) FollowLogs(ctx context.Context, ref string, raw bool, tail int, w io.Writer) error {
 	if tail < 0 {
 		return errors.New("tail must be non-negative")
@@ -162,22 +104,23 @@ func (m *Manager) FollowLogs(ctx context.Context, ref string, raw bool, tail int
 			if err := drain(); err != nil {
 				return err
 			}
-			current, err := os.Lstat(path)
-			if err != nil && !errors.Is(err, os.ErrNotExist) {
-				return err
-			}
 			opened, err := file.Stat()
 			if err != nil {
 				return err
 			}
-			if current != nil && !os.SameFile(current, opened) {
-				// The producer closes the old file before renaming it. Pick
-				// up anything appended between the preceding EOF and rename.
+			next, err := nextLogGeneration(path, opened)
+			if err != nil {
+				return err
+			}
+			if next != nil {
+				// The producer closes the old file before renaming it. Drain
+				// anything appended since EOF before switching descriptors.
 				if err := drain(); err != nil {
+					next.Close()
 					return err
 				}
 				file.Close()
-				file = nil
+				file = next
 				continue
 			}
 		}
@@ -202,4 +145,49 @@ func (m *Manager) FollowLogs(ctx context.Context, ref string, raw bool, tail int
 		case <-ticker.C:
 		}
 	}
+}
+
+// nextLogGeneration returns the oldest retained successor of opened. A burst
+// can rotate twice between polls, leaving unread output in output.log.1.
+func nextLogGeneration(path string, opened os.FileInfo) (*os.File, error) {
+	currentInfo, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if os.SameFile(opened, currentInfo) {
+		return nil, nil
+	}
+
+	current, snapshot, err := openLogSnapshot(path)
+	if err != nil || current == nil {
+		return nil, err
+	}
+	older, previous, err := openLogSnapshot(path + ".1")
+	if err != nil {
+		current.Close()
+		return nil, err
+	}
+	if older == nil {
+		return current, nil
+	}
+	if !os.SameFile(opened, previous) && !os.SameFile(snapshot, previous) {
+		// Only read .1 first if it still precedes the current descriptor we
+		// opened. If the pair rotated again, consume our pinned descriptor
+		// first and pick up the new generations on the next pass.
+		now, err := os.Lstat(path)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			older.Close()
+			current.Close()
+			return nil, err
+		}
+		if os.SameFile(snapshot, now) {
+			current.Close()
+			return older, nil
+		}
+	}
+	older.Close()
+	return current, nil
 }

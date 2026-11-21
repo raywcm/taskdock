@@ -17,6 +17,7 @@
     "version": "バージョン",
     "detach_short": "戻る",
     "loading": "セッションを読み込み中…",
+    "empty_tmux": "tmux セッションはありません。",
     "empty_running": "実行中のセッションはありません。n でシェルを作成。",
     "empty_stop": "停止済みのセッションはありません。",
     "session": "セッション",

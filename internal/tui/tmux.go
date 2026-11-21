@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"time"
 
@@ -42,6 +43,15 @@ func (m *model) loadTmux() tea.Cmd {
 		result := tmuxResult{generation: generation}
 		if preview {
 			result.text, result.err = server.Capture(ctx, tmux.Session{ID: selected})
+			// A failed capture can be transient. Leave the preview only if the
+			// server confirms the selected session has actually disappeared.
+			if result.err != nil && ctx.Err() == nil {
+				sessions, err := server.List(ctx)
+				if err == nil && !slices.ContainsFunc(sessions, func(s tmux.Session) bool { return s.ID == selected }) {
+					result.sessions = sessions
+					result.err = nil
+				}
+			}
 		} else {
 			result.sessions, result.err = server.List(ctx)
 		}
@@ -52,6 +62,9 @@ func (m *model) loadTmux() tea.Cmd {
 func (m model) updateTmux(result tmuxResult) (tea.Model, tea.Cmd) {
 	if result.generation != m.tmux.generation || (m.mode != "tmux" && m.mode != "tmux-view") {
 		return m, nil
+	}
+	if result.sessions != nil {
+		m.mode = "tmux"
 	}
 	m.tmux.loaded = true
 	m.tmux.err = result.err
@@ -86,6 +99,8 @@ func (m model) tmuxKey(k string) (tea.Model, tea.Cmd) {
 		m.tmux.generation++
 		if m.mode == "tmux-view" {
 			m.mode = "tmux"
+			m.tmux.loaded = false
+			m.tmux.err = nil
 			return m, m.loadTmux()
 		}
 		m.mode = ""
@@ -93,7 +108,7 @@ func (m model) tmuxKey(k string) (tea.Model, tea.Cmd) {
 	case "f5", "r":
 		return m, m.loadTmux()
 	case "enter":
-		if m.mode == "tmux" && m.tmux.selected != "" {
+		if m.mode == "tmux" && m.tmux.loaded && m.tmux.selected != "" {
 			m.mode = "tmux-view"
 			m.tmux.text = ""
 			m.tmux.loaded = false
@@ -143,7 +158,7 @@ func (m model) tmuxLines(width int) []string {
 		return append(lines, rows[max(0, len(rows)-available):]...)
 	}
 	if len(m.tmux.sessions) == 0 {
-		return append(lines, t("empty_running"))
+		return append(lines, t("empty_tmux"))
 	}
 	start := 0
 	for i, s := range m.tmux.sessions {
@@ -152,7 +167,7 @@ func (m model) tmuxLines(width int) []string {
 			break
 		}
 	}
-	for _, s := range m.tmux.sessions[start:] {
+	for _, s := range m.tmux.sessions[start:min(len(m.tmux.sessions), start+max(1, m.height-len(lines)))] {
 		marker := "  "
 		if s.ID == m.tmux.selected {
 			marker = "› "

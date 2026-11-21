@@ -78,8 +78,8 @@ def check_palettes(h):
         # Theme, mode, manager foreground/background, status foreground/background.
         ('classic', 'light', '006c70', 'f6f8fc', 'blue', 'white'),
         ('classic', 'dark', '70e1c8', '141a26', 'white', 'blue'),
-        ('terminal', 'light', 'blue', 'default', 'ffffff', '005f5f'),
-        ('terminal', 'dark', 'brightcyan', 'default', '000000', '00afaf'),
+        ('terminal', 'light', 'blue', 'default', '2f517f', 'dce6f3'),
+        ('terminal', 'dark', 'brightcyan', 'default', 'dce6f3', '263b58'),
     ]
     for theme, mode, accent, background, status_fg, status_bg in palettes:
         h.cli('settings', 'set', 'theme', theme)
@@ -157,7 +157,7 @@ def test_terminal_theme(h):
     os.write(fd, b'q')
     assert h.join(pid) == 0
 
-    check_status_theme(h, 'terminal', 'ffffff', '005f5f')
+    check_status_theme(h, 'terminal', '2f517f', 'dce6f3')
     h.create('second', '/bin/sh', '-c', 'read hold')
     ENV['NO_COLOR'] = '1'
     pid, fd = h.spawn_tty()
@@ -184,6 +184,11 @@ def main():
             h.cli('settings', 'set', 'history-retention', 'off')
             ref = h.create('theme-work', sys.executable, '-c', FIXTURE, 'theme')
             check_palettes(h)
+            ENV.pop('COLORTERM')
+            for mode, ink, paper in [('light', 'blue', 'afd7ff'), ('dark', 'white', 'blue')]:
+                h.cli('settings', 'set', 'color-mode', mode)
+                check_status_theme(h, 'terminal', ink, paper)
+            ENV['COLORTERM'] = 'truecolor'
             assert not received(h, ref), 'manager background replies reached the application'
             check_app_background_query(h)
             pid, fd = h.spawn_tty()

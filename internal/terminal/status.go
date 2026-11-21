@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 	"github.com/raywcm/taskdock/internal/config"
@@ -366,21 +367,27 @@ func (s *statusScreen) update(name string, resources *task.Resources) {
 func (s *statusScreen) setAppearance(settings config.Settings, background color.Color) {
 	style := ansi.NewStyle().Reset().Bold()
 	marker := ""
+	mode := ResolveColorMode(settings.ColorMode, background)
+	var fg, bg color.Color = ansi.White, ansi.Blue
+	if mode == "light" {
+		fg, bg = ansi.Blue, ansi.White
+	}
 	if settings.Theme == "terminal" {
 		marker = "┃ "
+		switch colorprofile.Env(os.Environ()) {
+		case colorprofile.TrueColor:
+			fg, bg = ansi.HexColor("#dce6f3"), ansi.HexColor("#263b58")
+			if mode == "light" {
+				fg, bg = ansi.HexColor("#2f517f"), ansi.HexColor("#dce6f3")
+			}
+		case colorprofile.ANSI256:
+			if mode == "light" {
+				bg = ansi.IndexedColor(153) // Pale blue in the xterm palette.
+			}
+		}
 	}
 	if os.Getenv("NO_COLOR") == "" {
-		mode := ResolveColorMode(settings.ColorMode, background)
-		switch {
-		case settings.Theme == "terminal" && mode == "dark":
-			style = style.ForegroundColor(ansi.IndexedColor(16)).BackgroundColor(ansi.IndexedColor(37))
-		case settings.Theme == "terminal":
-			style = style.ForegroundColor(ansi.IndexedColor(231)).BackgroundColor(ansi.IndexedColor(23))
-		case mode == "light":
-			style = style.ForegroundColor(ansi.Blue).BackgroundColor(ansi.White)
-		default:
-			style = style.ForegroundColor(ansi.White).BackgroundColor(ansi.Blue)
-		}
+		style = style.ForegroundColor(fg).BackgroundColor(bg)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

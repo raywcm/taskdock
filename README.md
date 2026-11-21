@@ -104,7 +104,8 @@ and marks the selection with a colored `›`. Both support automatic, dark, and
 light colors. Press Enter to save or Esc to cancel.
 
 Fullscreen sessions have a bottom row with the session name and process-tree
-memory use. In the Terminal theme, a solid teal background spans the full row.
+memory use. In the Terminal theme, a soft blue background spans the full row
+and follows the light or dark color mode.
 Use `tdock --no-status` for native forwarding and terminal scrollback.
 Starting a nested manager or session inside TaskDock is blocked; `ls`, `logs` and
 other management commands remain available.

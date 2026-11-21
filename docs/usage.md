@@ -30,8 +30,9 @@ every two seconds. The size owner gives
 the application one fewer row. Followers crop the owner's screen and keep their
 own status row. A follower shows the application's cursor when it falls inside
 the visible part of the screen. The status row follows the chosen theme and
-color mode. In the Terminal theme, the whole row uses black text on bright teal in Dark
-mode and white text on dark teal in Light mode.
+color mode. In the Terminal theme, the whole row uses pale text on a deep blue background in Dark
+mode and TaskDock blue on pale blue in Light mode. Terminals with limited
+color support use their own blue palette.
 
 With cell-based mouse tracking, the status row ignores clicks and wheel events.
 Dragging from the application into the status row releases at the edge of the

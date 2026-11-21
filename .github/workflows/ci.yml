@@ -33,6 +33,10 @@ jobs:
         run: python3 scripts/installer_test.py
       - run: go build -race -o bin/tdock ./cmd/tdock
       - run: python3 scripts/integration.py
+      - name: Ensure Linux exercises a real tmux server
+        if: runner.os == 'Linux'
+        run: command -v tmux || (sudo apt-get update && sudo apt-get install -y tmux)
+      - run: python3 scripts/tmux_view_regression.py bin/tdock
       - name: Verify upgrade from mtask
         run: |
           mkdir -p "$RUNNER_TEMP/taskdock-legacy"

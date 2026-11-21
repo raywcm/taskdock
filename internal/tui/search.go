@@ -163,7 +163,7 @@ func (m model) searchView(width int) []string {
 		if active(r) {
 			state = t("running")
 		}
-		label := fmt.Sprintf("%s [%s] · %s", safe(r.Spec.Name), shortID(r.Spec.ID, m.tasks), state)
+		label := fmt.Sprintf("%s [%s] · %s", safe(r.Spec.Name), m.shortID(r.Spec.ID), state)
 		label = ansi.Truncate(label, max(1, width-4), "…")
 		if i == cursor {
 			label = p.accent.Reverse(true).Bold(true).Render(label)

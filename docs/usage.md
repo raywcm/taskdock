@@ -39,7 +39,7 @@ blocked. Use Ctrl+Q or F12 to return to the list. Management commands such as
 | --- | --- |
 | `new-session` | `new`, `-s NAME`, `-c DIRECTORY`, `-d`, `-A` |
 | `list-sessions` | `ls`, `--json`, `--history` |
-| `attach-session` | `attach`, `a`, `-t SESSION`, `-r`, `--shared`, `--takeover` |
+| `attach-session` | `attach`, `a`, `-t SESSION`, `-r`, `--shared`, `-d` / `--takeover` |
 | `rename-session` | `rename`, `-t SESSION NAME` |
 | `has-session` | `has`, `-t SESSION`; exit 0 if running, 1 otherwise |
 | `kill-session` | `-t SESSION`; stops the task and removes its history |
@@ -47,13 +47,34 @@ blocked. Use Ctrl+Q or F12 to return to the list. Management commands such as
 `new -As work` attaches to a running named session or creates it. Add `-d` to
 leave it detached. An ended record keeps its name; inspect or delete it first.
 Targets accept names, IDs or unique ID prefixes; positional targets still work.
-Targets are explicit: tmux window/pane syntax, formats, implicit current sessions
-and `attach -d` are unsupported. Listing includes retained stopped records.
+Supply a session target explicitly. TaskDock does not interpret tmux window or
+pane targets or tmux format strings. `attach -d -t NAME` takes control of the
+session, detaches other controllers and keeps read-only viewers connected.
+Listing includes retained stopped records.
 
 Existing scripts should replace `list` with `ls`, `status` with `show`, `rm` with
 `delete`, and `new -n` with `new -s`. `show` always prints JSON; its redundant
 `--json` flag was removed. Use `stop` when you want to retain output history;
 `delete` removes a stopped record.
+
+## View existing tmux sessions
+
+Press `t` in the TaskDock session list to browse the current tmux server. Select a
+session with the arrow keys and press Enter to preview its active pane. The view
+refreshes once a second. Esc returns to the list. Browsing requires the tmux
+executable and access to the server as the current user.
+
+```sh
+tdock tmux ls --json
+tdock tmux capture -t work
+tdock tmux view -t work
+tdock tmux -L build ls
+tdock tmux -S /path/to/socket capture -t work
+```
+
+`view` opens tmux's own read-only client with its native pane layout. Use the
+tmux detach binding to leave (by default Ctrl+B, then d). Inside tmux, use
+TaskDock's preview or `capture` to inspect another session.
 
 ## Detach keys
 

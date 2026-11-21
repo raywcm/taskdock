@@ -60,9 +60,15 @@ func readLogSnapshot(path string, tail int64) ([]byte, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	var currentSize int64
 	if current != nil {
 		defer current.Close()
+	}
+	return readOpenedLogTail(path, tail, current, currentInfo)
+}
+
+func readOpenedLogTail(path string, tail int64, current *os.File, currentInfo os.FileInfo) ([]byte, bool, error) {
+	var currentSize int64
+	if current != nil {
 		currentSize = currentInfo.Size()
 		if tail > 0 && currentSize > tail {
 			data, err := io.ReadAll(io.NewSectionReader(current, currentSize-tail, tail))

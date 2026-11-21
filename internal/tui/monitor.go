@@ -95,7 +95,7 @@ func (m model) monitorView(width int) []string {
 	rows := m.rows(tabRunning)
 	title := t("monitor_select")
 	if r, ok := m.current(); ok {
-		title = safe(r.Spec.Name) + " [" + shortID(r.Spec.ID, m.tasks) + "]"
+		title = safe(r.Spec.Name) + " [" + m.shortID(r.Spec.ID) + "]"
 		if m.monitorFrame.Err == nil {
 			title += " · " + t("monitor_control")
 		}

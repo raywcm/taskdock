@@ -50,6 +50,12 @@ def main():
     os.write(fd,b'\x1b[24~');assert h.join(pid)==0
     assert b'FORBIDDEN' not in h.cli('logs',live).stdout
    finally:owner.close()
+   owner,_=connect(h,live,'exclusive')
+   try:
+    pid,fd=h.spawn_tty('attach-session','-d','-t','live');wait_output(fd,b'live [')
+    os.write(fd,b'takeover-shortcut\n');wait_output(fd,b'ECHO:takeover-shortcut')
+    os.write(fd,b'\x11');assert h.join(pid)==0
+   finally:owner.close()
    original=h.show(live)['runtime']
    victim=h.create('victim','/bin/sh','-c','read value');h.cli('kill-session','-t','victim')
    assert h.cli('show',victim,check=False).returncode!=0

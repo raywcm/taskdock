@@ -28,7 +28,7 @@ func (m model) dialog(base string) string {
 	if m.mode == "name-conflict" {
 		details = []string{t("requested_name") + ": " + safe(m.conflictName), t("suggested_name") + ": " + safe(m.proposedName)}
 	} else {
-		details = []string{safe(m.targetName) + " [" + shortID(m.target, m.tasks) + "]"}
+		details = []string{safe(m.targetName) + " [" + m.shortID(m.target) + "]"}
 	}
 	body := []string{lipgloss.NewStyle().Bold(true).Render("! " + title), ""}
 	body = append(body, strings.Split(ansi.Wrap(prompt, textWidth, ""), "\n")...)

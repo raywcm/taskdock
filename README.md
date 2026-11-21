@@ -93,6 +93,7 @@ account after a dropped connection. Tasks do not survive a host reboot.
 | Shift+↑/↓ | Move the selected session; order is saved across terminals |
 | Ctrl+F | Search all sessions by name, ID, directory or command |
 | c | Choose takeover, read-only or shared control |
+| t | Browse existing tmux sessions and preview their active panes |
 | F5, F1/? | Refresh or show help |
 | q / Ctrl+C | Exit the manager without stopping tasks |
 
@@ -131,7 +132,8 @@ tdock settings set history-retention off
 Common tmux session commands and flags are supported: `new-session`/`new`,
 `list-sessions`/`ls`, `attach-session`/`attach`/`a`, `rename-session`/`rename`,
 `has-session`/`has`, and `kill-session`. See [usage](docs/usage.md) for the supported
-subset and migration notes.
+subset and migration notes. Use `tdock tmux ls` to list sessions on an existing
+tmux server and `tdock tmux view -t NAME` to open one read-only.
 
 Stopped records and logs expire after **one hour** by default. Each task retains
 two output files of about 8 MiB. All connections use the same Unix account.

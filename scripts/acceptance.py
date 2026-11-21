@@ -23,6 +23,7 @@ def main():
     tests = [
         ('lifecycle', ['integration.py']),
         ('tmux-cli', ['tmux_cli_regression.py']),
+        ('tmux-view', ['tmux_view_regression.py']),
         ('monitor-control', ['monitor_control_regression.py']),
         ('monitor-parser', ['monitor_panic_regression.py']),
         ('multi-terminal', ['multi_terminal_regression.py']),

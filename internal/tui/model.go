@@ -76,6 +76,8 @@ type tick time.Time
 type exitRequested struct{}
 
 type model struct {
+	shortIDs                             map[task.ID]string
+	tmux                                 tmuxBrowser
 	ctx                                  context.Context
 	catalog                              Backend
 	tasks                                []task.Record
@@ -289,6 +291,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tmuxResult:
+		return m.updateTmux(msg)
+	case tmuxRefresh:
+		if (m.mode == "tmux" || m.mode == "tmux-view") && uint64(msg) == m.tmux.generation {
+			return m, m.loadTmux()
+		}
+		return m, nil
 	case tea.BackgroundColorMsg:
 		if msg.Color != nil {
 			m.backgroundKnown, m.darkBackground = true, msg.IsDark()
@@ -419,6 +428,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.tasks, m.ready = msg.tasks, true
+		m.shortIDs = task.ShortIDs(m.tasks)
 		m.now = time.Now()
 		if m.initial != "" && m.tab != tabSettings {
 			ids[m.tab] = m.initial
@@ -485,6 +495,9 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.KeyPressMsg:
 		k := msg.String()
+		if m.mode == "tmux" || m.mode == "tmux-view" {
+			return m.tmuxKey(k)
+		}
 		if k == "ctrl+enter" {
 			return m, nil
 		}
@@ -620,6 +633,14 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		} else {
 			switch k {
+			case "t":
+				if m.busy || m.monitoring {
+					return m, nil
+				}
+				m.mode = "tmux"
+				m.tmux.loaded = false
+				m.tmux.err = nil
+				return m, m.loadTmux()
 			case "shift+up", "shift+down":
 				if m.busy || m.monitoring {
 					return m, nil

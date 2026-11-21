@@ -6,6 +6,9 @@ import (
 	"io"
 	"os"
 	"time"
+	"unicode/utf8"
+
+	"github.com/raywcm/taskdock/internal/task"
 )
 
 // logFilter retains ANSI parsing state only for safe log display, never for the
@@ -74,79 +77,122 @@ func (m *Manager) FollowLogs(ctx context.Context, ref string, raw bool, tail int
 	if err != nil {
 		return err
 	}
-	path, _ := m.Store.Path(r.Spec.ID, "output.log")
+	path, err := m.Store.Path(r.Spec.ID, "output.log")
+	if err != nil {
+		return err
+	}
 	var file *os.File
 	defer func() {
 		if file != nil {
 			file.Close()
 		}
 	}()
-	first := true
-	filter := logFilter{}
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		if file == nil {
-			info, statErr := os.Lstat(path)
-			if statErr == nil {
-				if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
-					return errors.New("unsafe output log")
-				}
-				file, err = os.Open(path)
-				if err != nil {
-					return err
-				}
-				if first && tail > 0 && info.Size() > int64(tail) {
-					if _, err := file.Seek(-int64(tail), io.SeekEnd); err != nil {
-						return err
-					}
-				}
-				first = false
-			} else if !errors.Is(statErr, os.ErrNotExist) {
-				return statErr
-			}
+	var filter logFilter
+	write := func(data []byte) error {
+		if !raw {
+			data = filter.clean(data)
 		}
-		if file != nil {
-			data, err := io.ReadAll(file)
+		if len(data) == 0 {
+			return nil
+		}
+		n, err := w.Write(data)
+		if err == nil && n != len(data) {
+			return io.ErrShortWrite
+		}
+		return err
+	}
+	buf := make([]byte, 32*1024)
+	drain := func() error {
+		for {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			n, err := file.Read(buf)
+			if e := write(buf[:n]); e != nil {
+				return e
+			}
+			if err == io.EOF {
+				return nil
+			}
 			if err != nil {
 				return err
 			}
-			if !raw {
-				data = filter.clean(data)
+		}
+	}
+	first, finished := true, false
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if file == nil {
+			var info os.FileInfo
+			file, info, err = openLogSnapshot(path)
+			if err != nil {
+				return err
 			}
-			if len(data) > 0 {
-				if _, err := w.Write(data); err != nil {
+			if first {
+				data, cut, err := readOpenedLogTail(path, int64(tail), file, info)
+				if errors.Is(err, errLogRotated) {
+					file.Close()
+					file = nil
+					continue
+				}
+				if err != nil {
 					return err
 				}
+				if !raw && cut {
+					for len(data) > 0 && !utf8.RuneStart(data[0]) {
+						data = data[1:]
+					}
+				}
+				if err := write(data); err != nil {
+					return err
+				}
+				if file != nil {
+					if _, err := file.Seek(info.Size(), io.SeekStart); err != nil {
+						return err
+					}
+				}
+				first = file == nil && len(data) == 0
 			}
-			current, statErr := os.Stat(path)
-			opened, openErr := file.Stat()
-			if statErr == nil && openErr == nil && !os.SameFile(current, opened) {
+		}
+		if file != nil {
+			if err := drain(); err != nil {
+				return err
+			}
+			current, err := os.Lstat(path)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			opened, err := file.Stat()
+			if err != nil {
+				return err
+			}
+			if current != nil && !os.SameFile(current, opened) {
+				// The producer closes the old file before renaming it. Pick
+				// up anything appended between the preceding EOF and rename.
+				if err := drain(); err != nil {
+					return err
+				}
 				file.Close()
 				file = nil
 				continue
 			}
 		}
+		if finished {
+			return nil
+		}
 		latest, err := m.Store.Load(ctx, r.Spec.ID)
 		if err != nil {
 			return err
 		}
-		if latest.Runtime != nil && (latest.Runtime.State == "exited" || latest.Runtime.State == "failed") {
-			// Runtime is committed after the output pump drains; read once more before returning.
-			if file != nil {
-				data, err := io.ReadAll(file)
-				if err != nil {
-					return err
-				}
-				if !raw {
-					data = filter.clean(data)
-				}
-				_, err = w.Write(data)
-				return err
-			}
-			return nil
-		}
 		observed := m.Observe(ctx, latest)
+		if observed.Runtime != nil && (observed.Runtime.State == task.Exited || observed.Runtime.State == task.Failed) {
+			finished = true
+			continue
+		}
 		if observed.Health == "unreachable" {
 			return errors.New("broker unreachable; follow stopped")
 		}

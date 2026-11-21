@@ -163,7 +163,7 @@ func TestSelectedSingleLineAndColumnsFitCJKViewport(t *testing.T) {
 		}
 	}
 	m.width, m.height = 100, 30
-	card := m.card(m.tasks[0], 96, true)
+	card := m.card(m.tasks[0], 96, m.columns(92), true)
 	if len(strings.Split(card, "\n")) != 1 {
 		t.Fatalf("selected row wrapped: %q", ansi.Strip(card))
 	}

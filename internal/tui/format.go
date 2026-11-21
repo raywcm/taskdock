@@ -30,20 +30,14 @@ func right(text string, width int) string {
 	text = ansi.Truncate(text, width, "…")
 	return strings.Repeat(" ", max(0, width-ansi.StringWidth(text))) + text
 }
-func shortID(id task.ID, all []task.Record) string {
-	for length := 8; length < len(id); length++ {
-		unique := true
-		for _, r := range all {
-			if r.Spec.ID != id && strings.HasPrefix(string(r.Spec.ID), string(id[:length])) {
-				unique = false
-				break
-			}
-		}
-		if unique {
-			return string(id[:length])
-		}
+func (m model) shortID(id task.ID) string {
+	if ref, ok := m.shortIDs[id]; ok {
+		return ref
 	}
-	return string(id)
+	if ref, ok := task.ShortIDs(m.tasks)[id]; ok {
+		return ref
+	}
+	return string(id[:min(len(id), 8)])
 }
 func elapsed(r task.Record, now time.Time) time.Duration { return r.Elapsed(now) }
 

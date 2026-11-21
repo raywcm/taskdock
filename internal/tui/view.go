@@ -116,22 +116,21 @@ func (m model) rowText(r task.Record, c columns) string {
 			cpu = "…"
 		}
 	}
-	return c.render(marker+" "+safe(r.Spec.Name), shortID(r.Spec.ID, m.tasks), duration(elapsed(r, m.now)), cpu, mem)
+	return c.render(marker+" "+safe(r.Spec.Name), m.shortID(r.Spec.ID), duration(elapsed(r, m.now)), cpu, mem)
 }
 func (m model) columns(width int) columns {
 	c := layout(width, m.settings.ShowResources)
 	if c.id > 0 {
 		longest := c.id
 		for _, r := range m.tasks {
-			longest = max(longest, len(shortID(r.Spec.ID, m.tasks)))
+			longest = max(longest, len(m.shortID(r.Spec.ID)))
 		}
 		c.name = max(1, c.name-(longest-c.id))
 		c.id = longest
 	}
 	return c
 }
-func (m model) card(r task.Record, width int, selected bool) string {
-	c := m.columns(max(1, width-4))
+func (m model) card(r task.Record, width int, c columns, selected bool) string {
 	style := lipgloss.NewStyle().Width(max(1, width)).Padding(0, 2)
 	if selected {
 		// Keep the previous horizontal layout, but use a one-line side frame.
@@ -176,7 +175,7 @@ func (m model) helpLine(width int) string {
 	if m.tab == tabStop {
 		enterLabel = t("view_history")
 	}
-	bindings := [][2]string{{"←→", t("tabs_short")}, {"↑↓", t("select")}, {"Enter", enterLabel}, {"v", t("monitor")}, {"n", t("new")}, {"Ctrl+F", t("search_sessions")}, {"?", t("help")}, {"q", t("quit")}}
+	bindings := [][2]string{{"←→", t("tabs_short")}, {"↑↓", t("select")}, {"Enter", enterLabel}, {"v", t("monitor")}, {"t", "tmux"}, {"n", t("new")}, {"Ctrl+F", t("search_sessions")}, {"?", t("help")}, {"q", t("quit")}}
 	items := []string{}
 	for _, binding := range bindings {
 		items = append(items, p.accent.Render(binding[0])+" "+p.muted.Render(binding[1]))
@@ -185,7 +184,7 @@ func (m model) helpLine(width int) string {
 	if ansi.StringWidth(line) <= width {
 		return line
 	}
-	for _, compact := range []string{"←→ ↑↓ Enter v n Ctrl+F ? q", "Enter v Ctrl+F ? q", "v ? q"} {
+	for _, compact := range []string{"←→ ↑↓ Enter v t n Ctrl+F ? q", "Enter v Ctrl+F ? q", "v ? q"} {
 		if ansi.StringWidth(compact) <= width {
 			return p.muted.Render(compact)
 		}
@@ -306,6 +305,7 @@ func (m model) helpView(width int) []string {
 		{tabKeys, t("tabs")},
 		{"Enter", enterAction},
 		{"v", t("monitor")},
+		{"t", "tmux"},
 		{"Ctrl+F", t("search_sessions")},
 		{"c", t("connection_modes")},
 		{"n", t("new")},
@@ -326,7 +326,7 @@ func (m model) helpView(width int) []string {
 
 func (m model) connectionView(width int) []string {
 	t, p := m.locale().Text, m.palette()
-	suffix := " [" + shortID(m.target, m.tasks) + "]"
+	suffix := " [" + m.shortID(m.target) + "]"
 	name := ansi.Truncate(safe(m.targetName), max(1, width-ansi.StringWidth(suffix)), "…") + suffix
 	lines := []string{m.header(width), "", p.accent.Bold(true).Render(t("connection_modes")), name, ""}
 	if m.mode == "takeover" {
@@ -349,7 +349,7 @@ func (m model) View() tea.View {
 		return view
 	}
 	width := max(1, min(120, m.width-4))
-	if m.monitoring || m.mode == "history" {
+	if m.monitoring || m.mode == "history" || m.mode == "tmux-view" {
 		width = max(1, m.width-4)
 	}
 	t := m.locale().Text
@@ -358,6 +358,8 @@ func (m model) View() tea.View {
 	showMonitor := false
 	if m.width < 26 || m.height < 9 {
 		lines = []string{m.header(width), t("small_window"), "q " + t("quit")}
+	} else if m.mode == "tmux" || m.mode == "tmux-view" {
+		lines = m.tmuxLines(width)
 	} else if m.mode == "help" {
 		lines = m.helpView(width)
 	} else if m.mode == "search" {
@@ -401,7 +403,7 @@ func (m model) View() tea.View {
 			drawn = 1
 		} else {
 			for i := start; i < min(len(rows), start+visible); i++ {
-				card := strings.Split(m.card(rows[i], width, i == cursor), "\n")
+				card := strings.Split(m.card(rows[i], width, c, i == cursor), "\n")
 				lines = append(lines, card...)
 				drawn += len(card)
 			}

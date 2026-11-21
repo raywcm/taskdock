@@ -166,6 +166,7 @@ func NewRoot() *cobra.Command {
 		for _, warning := range warnings {
 			fmt.Fprintln(cmd.ErrOrStderr(), "TaskDock:", warning)
 		}
+		all := records
 		if history {
 			filtered := make([]task.Record, 0)
 			for _, r := range records {
@@ -183,8 +184,9 @@ func NewRoot() *cobra.Command {
 			preferences = config.Defaults()
 		}
 		locale := i18n.New(preferences.Language)
+		refs := task.ShortIDs(all)
 		for _, r := range records {
-			if _, err := fmt.Fprintln(cmd.OutOrStdout(), service.LabelLocale(r, locale)); err != nil {
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), service.LabelLocale(r, refs[r.Spec.ID], locale)); err != nil {
 				return err
 			}
 		}
@@ -192,7 +194,7 @@ func NewRoot() *cobra.Command {
 	}}
 	list.Flags().BoolVar(&listJSON, "json", false, "print JSON")
 	list.Flags().BoolVar(&history, "history", false, "only completed tasks")
-	root.AddCommand(list)
+	root.AddCommand(list, tmuxCommand())
 	var name, dir string
 	var detached, newJSON, reuse bool
 	create := &cobra.Command{Use: "new-session [flags] [command [args...]]", Aliases: []string{"new"}, Short: "Start a persistent task (default: your shell)", Args: cobra.ArbitraryArgs, RunE: func(cmd *cobra.Command, args []string) error {
@@ -301,7 +303,7 @@ func NewRoot() *cobra.Command {
 		return err
 	}}
 	attach.Flags().BoolVar(&noEscape, "no-escape", false, "forward every input byte, including detach keys")
-	attach.Flags().BoolVar(&takeover, "takeover", false, "disconnect existing controllers and take control")
+	attach.Flags().BoolVarP(&takeover, "takeover", "d", false, "disconnect existing controllers and take control")
 	attach.Flags().BoolVarP(&readOnly, "read-only", "r", false, "watch output without sending input or changing terminal size")
 	attach.Flags().BoolVar(&shared, "shared", false, "join the session with shared input control")
 	attach.MarkFlagsMutuallyExclusive("takeover", "read-only", "shared")

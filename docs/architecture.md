@@ -94,7 +94,9 @@ the PTY size. Repeated identical resize requests are ignored.
 
 Ctrl+Q and F12 detach from fullscreen sessions.
 Bracketed paste bypasses shortcuts. Partial keys flush after 50 ms. Recognized
-mouse reports and background-color replies allow 500 ms between fragments.
+paste-start prefixes, mouse reports and background-color replies allow 500 ms
+between fragments. During paste, only the closing marker is tracked. Each byte
+is forwarded immediately.
 `--no-escape` forwards every input byte.
 In the monitor, ↑/↓ switches tasks, Shift+↑/↓ sends application arrows, and
 Ctrl+Q/F12 or Esc returns to the list. Ctrl+F pauses forwarding for search.

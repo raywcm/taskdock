@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestPasteEndingAfterLiteralEscDoesNotCaptureNextKey(t *testing.T) {
@@ -19,12 +21,47 @@ func TestPasteEndingAfterLiteralEscDoesNotCaptureNextKey(t *testing.T) {
 		}}
 		first, handled := d.Feed([]byte(paste[:split]))
 		last, done := d.Feed([]byte(paste[split:]))
-		if handled || done || string(append(first, last...)) != paste || d.pasting || commands != 0 {
+		if handled || done || string(append(first, last...)) != paste || commands != 0 {
 			t.Fatalf("split %d: paste changed or did not end", split)
 		}
 		d.Feed([]byte{0x1b})
 		if output := d.FlushEscape(); len(output) != 0 || commands != 1 {
 			t.Fatal("Esc after paste was forwarded")
+		}
+	}
+}
+
+func TestPasteStreamsUntilExactEndMarker(t *testing.T) {
+	for _, payload := range []string{"", "\x1b[99", "\x1b]11;unfinished", "\x1b[201\x1b", "\x1b[200~", "中文\n\x00\xff\x11\x1b[24~"} {
+		for split := 0; split <= len(ansi.BracketedPasteEnd); split++ {
+			d := EscapeDecoder{
+				Report:  func([]byte) bool { return true },
+				Command: func([]byte, uint16) bool { t.Fatal("command inside paste"); return true },
+			}
+			for _, part := range []string{ansi.BracketedPasteStart, payload, ansi.BracketedPasteEnd[:split], ansi.BracketedPasteEnd[split:]} {
+				got, detached := d.Feed([]byte(part))
+				if detached || string(got) != part || d.PendingEscape() {
+					t.Fatalf("payload %q, split %d: did not immediately forward %q: %q", payload, split, part, got)
+				}
+			}
+			d.Report = nil
+			if got, detached := d.Feed([]byte("\x11tail")); !detached || len(got) != 0 || string(d.Remaining) != "tail" {
+				t.Fatalf("payload %q, split %d: did not recognize detach after paste", payload, split)
+			}
+		}
+	}
+}
+
+func TestPasteStartsAfterPartialKey(t *testing.T) {
+	for _, prefix := range []string{"\x1b[", "\x1b[1;", "\x1bO"} {
+		raw := prefix + ansi.BracketedPasteStart + "\x11" + ansi.BracketedPasteEnd
+		for split := 0; split <= len(raw); split++ {
+			d := EscapeDecoder{}
+			first, early := d.Feed([]byte(raw[:split]))
+			last, done := d.Feed([]byte(raw[split:] + "\x11"))
+			if early || !done || string(append(first, last...)) != raw || len(d.Remaining) != 0 {
+				t.Fatalf("prefix %q, split %d: lost paste boundary", prefix, split)
+			}
 		}
 	}
 }

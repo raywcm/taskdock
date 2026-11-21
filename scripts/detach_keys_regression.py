@@ -26,6 +26,34 @@ def received(h, ref):
     return b''.join(bytes.fromhex(part.decode()) for part in re.findall(rb'INPUT:([0-9a-f]+)', h.cli('logs', ref, '--raw').stdout))
 
 
+def check_fragmented_paste(h, ref):
+    for route in ('status', 'native', 'monitor'):
+        if route == 'monitor':
+            pid, fd = h.spawn_tty()
+            term = Terminal()
+            wait_view(fd, term, lambda text: 'hotkey-work' in text and 'Memory' in text)
+            os.write(fd, b'v')
+            wait_view(fd, term, lambda text: 'hotkey-work' in text and 'Control' in text)
+        else:
+            options = ('--no-status',) if route == 'native' else ()
+            pid, fd = h.spawn_tty('attach', ref, *options)
+            wait_output(fd, b'hotkey-work [')
+        before = received(h, ref)
+        first = b'\x1b['
+        middle = b'200~' + '两行\n文本'.encode() + b'\x11\x06\x1b[B\x1b[24~\x1b]11;unfinished\x1b[99\x1b[20'
+        os.write(fd, first)
+        time.sleep(.12)
+        os.write(fd, middle)
+        until(lambda: received(h, ref) == before + first + middle)
+        time.sleep(.55)
+        os.write(fd, b'1~\x11')
+        if route == 'monitor':
+            wait_view(fd, term, lambda text: 'Memory' in text and 'Control' not in text)
+            os.write(fd, b'q')
+        assert h.join(pid) == 0
+        assert received(h, ref) == before + first + middle + b'1~', route
+
+
 def main():
     binary = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else 'bin/tdock').resolve()
     with tempfile.TemporaryDirectory(prefix='tdock-detach-keys-') as root:
@@ -36,6 +64,7 @@ def main():
             ref = h.create('hotkey-work', sys.executable, '-c', FIXTURE)
             until(lambda: b'HOTKEY-READY' in h.cli('logs', ref).stdout)
             original = h.show(ref)['runtime']
+            check_fragmented_paste(h, ref)
             keys = [b'\x11', b'\x1b[24~', b'\x1b[113;5u', b'\x1b[27;5;113~', b'\x1b[24;1:1~']
             for options in [(), ('--no-status',)]:
                 for key in keys:
@@ -103,7 +132,7 @@ def main():
             wait_output(fd, b'eof ['); os.write(fd, b'\x04')
             wait_output(fd, b'EOF-STATUS:1'); assert h.join(pid) == 1
             assert h.finished(eof)['runtime']['exit_code'] == 1
-            print('PASS Ctrl+Q/F12 and CSI-u detach in native/status views, TUI return, removed shortcuts forwarded, paste/Unicode/mouse preservation, read-only and no-escape', flush=True)
+            print('PASS Ctrl+Q/F12 and CSI-u detach, fragmented bracketed paste in native/status/monitor views, TUI return, removed shortcuts forwarded, Unicode/mouse preservation, read-only and no-escape', flush=True)
         finally:
             h.cleanup()
 

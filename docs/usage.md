@@ -100,9 +100,10 @@ behavior. Ctrl+B and Ctrl+] pass directly to the application.
 
 `tdock attach --no-escape TASK` disables Ctrl+Q and F12 handling.
 Close the terminal or end the frontend to disconnect in that mode. Bracketed
-paste passes through without interpreting detach keys. A standalone Esc waits
-up to 50 ms. Recognized mouse report prefixes allow up to 500 ms between input
-fragments on a slow connection.
+paste streams directly to the application, including literal shortcut keys.
+TaskDock recognizes the closing marker even when it arrives in separate reads
+with a pause between them. A standalone Esc waits up to 50 ms. Recognizable
+paste-start and mouse-report prefixes allow up to 500 ms between input fragments.
 
 ## Manage tasks
 

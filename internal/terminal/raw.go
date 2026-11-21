@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"golang.org/x/term"
 )
 
@@ -39,9 +40,9 @@ type EscapeDecoder struct {
 	// Report consumes terminal replies owned by an embedded manager.
 	Report func([]byte) bool
 	// Remaining contains bytes after a handled command, for pane switching.
-	Remaining []byte
-	escape    []byte
-	pasting   bool
+	Remaining         []byte
+	escape            []byte
+	pasteEndRemaining string // unmatched suffix of the end marker while forwarding a paste
 }
 
 const inputEscapeLimit = 64
@@ -52,10 +53,22 @@ func (d *EscapeDecoder) Feed(input []byte) (output []byte, detach bool) {
 		return append([]byte(nil), input...), false
 	}
 	for index, b := range input {
-		// A control key after a bare Esc is a new key, not a CSI sequence.
-		// This also handles Vim Esc + detach arriving in a single TTY read
-		// after startup/repaint delayed input processing.
-		if len(d.escape) == 1 && b < 0x20 {
+		if d.pasteEndRemaining != "" {
+			output = append(output, b)
+			switch {
+			case b == d.pasteEndRemaining[0]:
+				d.pasteEndRemaining = d.pasteEndRemaining[1:]
+			case b == ansi.BracketedPasteEnd[0]:
+				d.pasteEndRemaining = ansi.BracketedPasteEnd[1:]
+			default:
+				d.pasteEndRemaining = ansi.BracketedPasteEnd
+			}
+			continue
+		}
+		// A control key after bare Esc, or a new Esc inside unfinished CSI/SS3,
+		// begins a separate input event. OSC keeps its own Esc-backslash terminator.
+		if (len(d.escape) == 1 && b < 0x20) ||
+			(b == 0x1b && len(d.escape) >= 2 && (d.escape[1] == '[' || d.escape[1] == 'O')) {
 			part, done := d.consume(d.escape, 0)
 			d.escape = nil
 			output = append(output, part...)
@@ -112,17 +125,14 @@ func (d *EscapeDecoder) Feed(input []byte) (output []byte, detach bool) {
 const (
 	keyF12 uint16 = 256 + iota
 	keyPasteStart
-	keyPasteEnd
 	keyRelease
 	// KeyCtrlEnter is distinct only in enhanced terminal keyboard encodings.
 	KeyCtrlEnter
 )
 
 func (d *EscapeDecoder) consume(raw []byte, key uint16) ([]byte, bool) {
-	if d.pasting {
-		if key == keyPasteEnd {
-			d.pasting = false
-		}
+	if key == keyPasteStart {
+		d.pasteEndRemaining = ansi.BracketedPasteEnd
 		return raw, false
 	}
 	if d.Report != nil && d.Report(raw) {
@@ -131,16 +141,13 @@ func (d *EscapeDecoder) consume(raw []byte, key uint16) ([]byte, bool) {
 	if key == 0x11 || key == keyF12 {
 		return nil, true
 	}
-	if key == keyPasteStart {
-		d.pasting = true
-	}
-	if !d.pasting && d.Ignore != nil && d.Ignore(raw, key) {
+	if d.Ignore != nil && d.Ignore(raw, key) {
 		return nil, false
 	}
-	if !d.pasting && d.Command != nil && d.Command(raw, key) {
+	if d.Command != nil && d.Command(raw, key) {
 		return nil, true
 	}
-	if !d.pasting && d.Transform != nil {
+	if d.Transform != nil {
 		return d.Transform(raw), false
 	}
 	return raw, false
@@ -150,11 +157,8 @@ func (d *EscapeDecoder) consume(raw []byte, key uint16) ([]byte, bool) {
 // Modified F12 and release events pass through.
 func escapeKey(raw []byte) uint16 {
 	s := string(raw)
-	if s == "\x1b[200~" {
+	if s == ansi.BracketedPasteStart {
 		return keyPasteStart
-	}
-	if s == "\x1b[201~" {
-		return keyPasteEnd
 	}
 	if len(s) < 4 || !strings.HasPrefix(s, "\x1b[") {
 		return 0
@@ -231,11 +235,11 @@ func (d *EscapeDecoder) Flush() []byte {
 // PendingEscape reports a partial terminal sequence requiring a short timeout.
 func (d *EscapeDecoder) PendingEscape() bool { return len(d.escape) != 0 }
 
-// After a terminal report introduces itself, allow a split payload to arrive
-// without delaying standalone Esc or ordinary key sequences.
+// Allow split paste markers and terminal reports without delaying standalone Esc.
 func (d *EscapeDecoder) EscapeTimeout() time.Duration {
-	if !d.pasting && ((d.Report != nil && bytes.HasPrefix(d.escape, []byte("\x1b]"))) ||
-		(d.Transform != nil && bytes.HasPrefix(d.escape, []byte("\x1b[<")))) {
+	if (len(d.escape) >= 2 && strings.HasPrefix(ansi.BracketedPasteStart, string(d.escape))) ||
+		(d.Report != nil && bytes.HasPrefix(d.escape, []byte("\x1b]"))) ||
+		(d.Transform != nil && bytes.HasPrefix(d.escape, []byte("\x1b[<"))) {
 		return 500 * time.Millisecond
 	}
 	return 50 * time.Millisecond

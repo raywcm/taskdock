@@ -111,7 +111,7 @@ def main():
             os.write(tty_fd, b"\x1b[13;5u")
             time.sleep(0.1)
             os.write(tty_fd, b"\r")
-            wait_view(tty_fd, terminal, lambda text: "alpha [" in text and "Control" not in text)
+            wait_view(tty_fd, terminal, lambda text: "[alpha] 0:" in terminal.display[-1] and "Control" not in text)
             os.write(tty_fd, b"fullscreen")
             expected += b"fullscreen"
             until(lambda: received(harness, alpha) == expected)

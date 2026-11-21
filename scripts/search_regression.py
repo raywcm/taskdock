@@ -79,7 +79,7 @@ def main():
             wait_view(fd, t, lambda s: 'archived' in s and 'Duration' in s)
             # Search from the list follows list Enter semantics and attaches fullscreen.
             os.write(fd, b'\x06WORK-00\r')
-            wait_view(fd, t, lambda s: 'work-00 [' in s and 'Control' not in s)
+            wait_view(fd, t, lambda s: '[work-00] 0:' in t.display[-1] and 'Control' not in s)
             os.write(fd, b'\x1b[24~')
             wait_view(fd, t, lambda s: 'Memory' in s)
             os.write(fd, b'v')

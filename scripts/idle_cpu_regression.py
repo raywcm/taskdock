@@ -42,7 +42,7 @@ def main():
                 pid, fd = h.spawn_tty(*args)
                 terminal = Terminal()
                 if mode in ['attach', 'read-only']:
-                    wait_view(fd, terminal, lambda text: 'idle-work [' in text)
+                    wait_view(fd, terminal, lambda text: '[idle-work] 0:' in terminal.display[-1])
                 else:
                     wait_view(fd, terminal, lambda text: 'Memory' in text and 'idle-work' in text)
                     if mode == 'monitor':

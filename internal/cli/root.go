@@ -112,9 +112,8 @@ func NewRoot() *cobra.Command {
 						}
 						continue
 					}
-					if r.Runtime != nil {
-						viewState = tui.State{Tab: "running", Selected: r.Spec.ID, Monitor: true}
-					}
+					viewState = tui.State{Tab: "running", Selected: r.Spec.ID}
+					_, notice = attachCreated(cmd.Context(), manager, r, input, output, noStatus)
 				}
 				if cmd.Context().Err() != nil {
 					return cmd.Context().Err()

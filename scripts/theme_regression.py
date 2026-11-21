@@ -25,6 +25,9 @@ def check_status_theme(h, foreground, background='default', detected=None):
         cell = term.current.buffer[term.rows-1][line.index('theme-work')]
         return (cell.fg, cell.bg) == (foreground, background)
     wait_view(fd, term, ready)
+    if foreground == 'default':
+        assert term.display[-1].startswith('┃ [theme-work] 0:')
+        assert term.current.buffer[term.rows-1][2].bold
     assert all(cell.bg == background and not cell.reverse for cell in term.current.buffer[term.rows-1].values())
     os.write(fd, b'\x1b[24~')
     assert h.join(pid) == 0
@@ -50,6 +53,7 @@ while not data.endswith(b'\a'):
 os.write(1, b'APP-COLOR:' + data.hex().encode())
 """
     h.cli('settings', 'set', 'color-mode', 'auto')
+    h.cli('settings', 'set', 'theme', 'classic')
     ref = h.create('palette-query', sys.executable, '-c', app)
     until(lambda: b'WAITING' in h.cli('logs', ref).stdout)
     pid, fd = h.spawn_tty('attach', ref)
@@ -67,8 +71,8 @@ def check_palettes(h):
         # Theme, mode, manager foreground/background, status foreground/background.
         ('classic', 'light', '006c70', 'f6f8fc', 'blue', 'white'),
         ('classic', 'dark', '70e1c8', '141a26', 'white', 'blue'),
-        ('terminal', 'light', 'blue', 'default', 'blue', 'default'),
-        ('terminal', 'dark', 'brightcyan', 'default', 'brightcyan', 'default'),
+        ('terminal', 'light', 'blue', 'default', 'default', 'default'),
+        ('terminal', 'dark', 'brightcyan', 'default', 'default', 'default'),
     ]
     for theme, mode, accent, background, status_fg, status_bg in palettes:
         h.cli('settings', 'set', 'theme', theme)
@@ -81,12 +85,15 @@ def check_palettes(h):
             os.write(fd, reply(detected))
             wait_view(fd, term, lambda view: 'theme-work' in view and term.current.buffer[0][2].fg == accent)
             assert term.current.buffer[0][2].bg == background, (theme, preference, mode)
+            if theme == 'terminal':
+                assert term.display[3].strip() == '━' * (term.columns - 4)
+                assert term.current.buffer[3][term.display[3].index('━')].fg == 'default'
             line = next(line for line in term.display if 'theme-work' in line)
             cell = term.current.buffer[term.display.index(line)][line.index('theme-work')]
             assert cell.reverse == (theme == 'classic') and ('›' in line) == (theme == 'terminal')
             os.write(fd, b'q')
             assert h.join(pid) == 0
-            check_status_theme(h, status_fg, status_bg, detected if preference == 'auto' else None)
+            check_status_theme(h, status_fg, status_bg, detected if theme == 'classic' and preference == 'auto' else None)
 
 
 def test_terminal_theme(h):
@@ -143,7 +150,7 @@ def test_terminal_theme(h):
     os.write(fd, b'q')
     assert h.join(pid) == 0
 
-    check_status_theme(h, 'blue')
+    check_status_theme(h, 'default')
     h.create('second', '/bin/sh', '-c', 'read hold')
     ENV['NO_COLOR'] = '1'
     pid, fd = h.spawn_tty()

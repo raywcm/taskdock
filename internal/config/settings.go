@@ -33,7 +33,7 @@ func (s *Settings) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	if slices.Contains(ColorModes(), s.Theme) {
-		s.ColorMode, s.Theme = s.Theme, "classic"
+		s.ColorMode, s.Theme = s.Theme, Defaults().Theme
 	}
 	if doc.ColorMode != nil {
 		s.ColorMode = *doc.ColorMode
@@ -73,7 +73,7 @@ func (draft Settings) EditsFrom(before Settings) SettingsEdit {
 }
 
 func Defaults() Settings {
-	return Settings{SchemaVersion: 1, Language: "auto", Theme: "classic", ColorMode: "auto", RefreshSeconds: 2, ShowResources: true, DefaultTab: "running", HistoryRetentionSeconds: 3600}
+	return Settings{SchemaVersion: 1, Language: "auto", Theme: "terminal", ColorMode: "auto", RefreshSeconds: 2, ShowResources: true, DefaultTab: "running", HistoryRetentionSeconds: 3600}
 }
 
 func Themes() []string     { return []string{"classic", "terminal"} }

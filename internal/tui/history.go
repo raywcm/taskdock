@@ -71,7 +71,7 @@ func (m model) historyKey(key string) (tea.Model, tea.Cmd) {
 func (m model) historyView(width int) []string {
 	t, p := m.locale().Text, m.palette()
 	title := t("output_history") + " · " + safe(m.history.name) + " [" + m.shortID(m.history.id) + "]"
-	lines := []string{m.header(width), p.accent.Bold(true).Render(ansi.Truncate(title, width, "…")), p.muted.Render(strings.Repeat("─", width))}
+	lines := []string{m.header(width), p.accent.Bold(true).Render(ansi.Truncate(title, width, "…")), p.rule(width)}
 	height := m.historyHeight()
 	y := max(0, min(m.history.y, m.history.bottom(height)))
 	for row := 0; row < height; row++ {

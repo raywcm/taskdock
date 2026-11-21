@@ -207,7 +207,7 @@ def test_languages(h):
         wait_view(fd,term,lambda text:all(label in text for label in [title,readonly,shared,takeover]))
         row=next(i for i,line in enumerate(term.display) if shared in line)
         column=term.display[row].index(shared)
-        assert term.current.buffer[row][column].reverse,'shared control must be the default'
+        assert '› '+shared in term.display[row] and term.current.buffer[row][column].bold,'shared control must be the default'
         os.write(fd,b'\x1b[B\r');wait_view(fd,term,lambda text:hint in text)
         os.write(fd,b'\x1b');wait_view(fd,term,lambda text:title not in text and hint not in text and 'mode-languages' in text)
         os.write(fd,b'q');drain(fd);assert h.join(pid)==0

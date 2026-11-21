@@ -165,6 +165,7 @@ func TestSelectedSingleLineAndColumnsFitCJKViewport(t *testing.T) {
 		}
 	}
 	m.width, m.height = 100, 30
+	m.settings.Theme = "classic" // Classic uses a one-line inverse frame.
 	card := m.palette().card(m.rowText(m.tasks[0], m.columns(92)), 96, true)
 	if len(strings.Split(card, "\n")) != 1 {
 		t.Fatalf("selected row wrapped: %q", ansi.Strip(card))
@@ -212,7 +213,7 @@ func TestSettingsSaveReflectsAnotherFrontend(t *testing.T) {
 	m := readyModel(t)
 	m, _ = press(m, ',')
 	m, _ = press(m, tea.KeyDown)
-	m, _ = press(m, tea.KeyLeft) // classic -> terminal
+	m, _ = press(m, tea.KeyLeft) // terminal -> classic
 	backend := m.catalog.(*fakeBackend)
 	backend.settings.Language = "fr"
 	backend.settings.ColorMode = "light"
@@ -220,7 +221,7 @@ func TestSettingsSaveReflectsAnotherFrontend(t *testing.T) {
 	m, cmd := press(m, tea.KeyEnter)
 	next, _ := m.Update(cmd())
 	m = next.(model)
-	if m.settings.Theme != "terminal" || m.settings.ColorMode != "light" || m.settings.Language != "fr" || m.settings.HistoryRetentionSeconds != 0 ||
+	if m.settings.Theme != "classic" || m.settings.ColorMode != "light" || m.settings.Language != "fr" || m.settings.HistoryRetentionSeconds != 0 ||
 		m.draft != m.settings || backend.settings != m.settings {
 		t.Fatalf("stale draft overwrote another frontend: %+v", m.settings)
 	}
@@ -495,7 +496,7 @@ func TestCompactListKeepsSelectionVisibleWhileScrolling(t *testing.T) {
 		for _, index := range []int{0, 10, 29} {
 			m.cursors[tabRunning] = index
 			view := ansi.Strip(m.View().Content)
-			if !strings.Contains(view, fmt.Sprintf("session-%02d", index)) || !strings.Contains(view, "│") {
+			if !strings.Contains(view, fmt.Sprintf("› ● session-%02d", index)) {
 				t.Fatalf("selection disappeared at %v, item %d", size, index)
 			}
 			if len(strings.Split(view, "\n")) > m.height {
@@ -744,7 +745,7 @@ func TestMonitorSplitSelectionFailureAndReturn(t *testing.T) {
 	}
 	m.monitorFrame = monitor.Frame{Ready: true, Rows: []string{"RIGHT-SCREEN", "LIVE-OUTPUT"}}
 	view := ansi.Strip(m.View().Content)
-	if !strings.Contains(view, "中文会话") || !strings.Contains(view, "other") || !strings.Contains(view, "RIGHT-SCREEN") || !strings.Contains(view, " │ ") {
+	if !strings.Contains(view, "中文会话") || !strings.Contains(view, "other") || !strings.Contains(view, "RIGHT-SCREEN") || !strings.Contains(view, " ┃ ") {
 		t.Fatalf("split view is missing list or screen: %s", view)
 	}
 	m, cmd = press(m, tea.KeyDown)

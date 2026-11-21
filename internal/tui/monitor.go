@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -112,7 +111,11 @@ func (m model) monitorView(width int) []string {
 		position = m.cursors[0] + 1
 	}
 	label := fmt.Sprintf("%s %d / %d", t("session"), position, len(rows))
-	lines := []string{m.header(width), "", m.tabs(width), p.muted.Render(strings.Repeat("─", width)), fit(label, left) + " │ " + ansi.Truncate(p.accent.Bold(true).Render(title), right, "…")}
+	divider := " │ "
+	if p.terminal {
+		divider = " ┃ "
+	}
+	lines := []string{m.header(width), "", m.tabs(width), p.rule(width), fit(label, left) + divider + ansi.Truncate(p.accent.Bold(true).Render(title), right, "…")}
 	start := max(0, m.cursors[0]-height+1)
 	preview := m.monitorFrame
 	for y := 0; y < height; y++ {
@@ -151,7 +154,7 @@ func (m model) monitorView(width int) []string {
 		case y < len(preview.Rows):
 			content = preview.Rows[y]
 		}
-		lines = append(lines, fit(label, left)+" │ "+fit(ansi.Truncate(content, right, ""), right))
+		lines = append(lines, fit(label, left)+divider+fit(ansi.Truncate(content, right, ""), right))
 	}
 	lines = append(lines, m.status(width), "")
 	return lines

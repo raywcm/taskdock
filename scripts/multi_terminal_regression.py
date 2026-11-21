@@ -12,7 +12,7 @@ def selected(t,name):
  for y,row in enumerate(t.display):
   if name not in row:continue
   x=row.index(name)
-  if t.current.buffer[y][x].reverse:return True
+  if '› ● '+name in row and t.current.buffer[y][x].bold:return True
  return False
 
 

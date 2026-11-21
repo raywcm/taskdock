@@ -99,7 +99,7 @@ account after a dropped connection. Tasks do not survive a host reboot.
 | q / Ctrl+C | Exit the manager without stopping tasks |
 
 Press `,` to change **Theme** and **Color mode** independently.
-Classic highlights the selected row. Terminal keeps your terminal’s background
+Classic highlights the selected row. The default Terminal theme keeps your terminal’s background
 and marks the selection with a colored `›`. Both support automatic, dark, and
 light colors. Press Enter to save or Esc to cancel.
 
@@ -113,7 +113,8 @@ On Mac, use Control+Q. F12 may require Fn. Standalone **Ctrl+D** and **Ctrl+C**
 go to the application. Use `tdock attach --no-escape TASK` to send all keys,
 including Ctrl+Q and F12, to the application.
 
-New sessions created from the TUI open selected in the monitor, with a narrow
+New sessions created from the TUI open fullscreen. Ctrl+Q or F12 returns to the
+list with the new session selected. Press `v` to open the monitor, with a narrow
 session list and a wide control pane. Type
 directly, including Enter; use **Ctrl+F** to search, **↑/↓** to switch tasks, and
 **Ctrl+Q/F12** to return to the list. Esc also returns from the monitor.

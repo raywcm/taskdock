@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""New-session monitor, long lists, search routing and Ctrl+Enter in real PTYs."""
+"""New-session fullscreen, long lists, search routing and Ctrl+Enter in real PTYs."""
 import os
 import pathlib
 import sys
@@ -36,15 +36,19 @@ def main():
             os.write(fd, b'n')
             wait_view(fd, t, lambda s: 'New shell name' in s)
             os.write(fd, b'added\r')
-            wait_view(fd, t, lambda s: 'added [' in s and 'Control' in s and 'work-23' in s)
-            assert t.alternate, 'new session opened fullscreen instead of the pane'
+            wait_view(fd, t, lambda s: '[added] 0:' in t.display[-1])
+            assert 'work-23' not in '\n'.join(t.display) and 'Control' not in t.display[4]
             created = h.show('added')
             until(lambda: h.cli('logs','added','--raw').stdout.rstrip().endswith((b'$',b'#')))
-            os.write(fd, b"printf 'NEW-PANE-OK\\n'\r")
+            os.write(fd, b"printf 'NEW-SHELL-OK\\n'\r")
             try:
-                until(lambda: b'NEW-PANE-OK\r\n' in h.cli('logs', 'added', '--raw').stdout)
+                until(lambda: b'NEW-SHELL-OK\r\n' in h.cli('logs', 'added', '--raw').stdout)
             except AssertionError:
                 raise AssertionError('new shell output: '+repr(h.cli('logs','added','--raw').stdout[-2000:]))
+            os.write(fd, b'\x11')
+            wait_view(fd, t, lambda s: '› ● added' in s and 'Memory' in s)
+            os.write(fd, b'v')
+            wait_view(fd, t, lambda s: 'added [' in s and 'Control' in s and 'work-23' in s)
             # Ctrl+F and the query in one read must never reach the application.
             os.write(fd, b'\x06work-23')
             wait_view(fd, t, lambda s: 'Search sessions' in s and '1 / 1' in s)
@@ -93,7 +97,7 @@ def main():
             for ref, runtime in before.items():
                 assert h.show(ref)['runtime'] == runtime
             assert h.show('added')['runtime']['child_pid'] == created['runtime']['child_pid']
-            print('PASS new selects monitor control, 25-session scrolling, global name/ID/case search, same-read query, no-match/cancel/history, ignored Ctrl+Enter encodings, literal Enter/Shift+Enter/paste, no resize on search cancel and preserved PIDs', flush=True)
+            print('PASS new opens fullscreen, detach preserves selection and v opens monitor control, 25-session scrolling, global name/ID/case search, same-read query, no-match/cancel/history, ignored Ctrl+Enter encodings, literal Enter/Shift+Enter/paste, no resize on search cancel and preserved PIDs', flush=True)
         finally:
             h.cleanup()
             ENV.clear(); ENV.update(saved_env)

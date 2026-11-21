@@ -220,7 +220,7 @@ def test_settings_and_session_controls(h):
     finally:
         h.cli('settings','reset')
     defaults = json.loads(h.cli('settings','--json').stdout)
-    assert (defaults['theme'], defaults['color_mode']) == ('classic', 'auto')
+    assert (defaults['theme'], defaults['color_mode']) == ('terminal', 'auto')
     h.cli('delete', task)
     print('PASS concurrent settings updates, session control with unreadable preferences, explicit reset', flush=True)
 
@@ -505,7 +505,7 @@ def test_tui(h):
 
             wait_output(fd,b'TaskDock')
             os.write(fd,b'n');drain(fd)
-            os.write(fd,b'tui-created\r');wait_output(fd,b'tui-created [')
+            os.write(fd,b'tui-created\r');wait_output(fd,b'[tui-created] 0:')
             until(lambda:ui.show('tui-created')['health']=='online')
             created=ui.show('tui-created')['spec']['id']
             os.write(fd,b'printf "TUI-OK\\n"\r')

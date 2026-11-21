@@ -138,7 +138,7 @@ func (m model) searchView(width int) []string {
 	rows := m.searchRows()
 	count := len(rows)
 	cursor := min(m.searchCursor, max(0, count-1))
-	lines := []string{m.header(width), "", p.accent.Bold(true).Render(t("search_sessions")), m.input.View(), p.muted.Render(strings.Repeat("─", width))}
+	lines := []string{m.header(width), "", p.accent.Bold(true).Render(t("search_sessions")), m.input.View(), p.rule(width)}
 	height := max(1, m.height-7)
 	start := max(0, cursor-height+1)
 	for i := start; i < min(count, start+height); i++ {

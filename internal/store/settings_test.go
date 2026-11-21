@@ -68,11 +68,13 @@ func TestOldPreferencesUseDefaultRetention(t *testing.T) {
 
 func TestLegacyAppearanceMigratesOnNextEdit(t *testing.T) {
 	for _, tc := range []struct{ file, theme, mode string }{
-		{`{"theme":"auto"}`, "classic", "auto"},
-		{`{"theme":"dark"}`, "classic", "dark"},
-		{`{"theme":"light"}`, "classic", "light"},
+		{`{}`, "terminal", "auto"},
+		{`{"theme":"classic","color_mode":"light"}`, "classic", "light"},
+		{`{"theme":"auto"}`, "terminal", "auto"},
+		{`{"theme":"dark"}`, "terminal", "dark"},
+		{`{"theme":"light"}`, "terminal", "light"},
 		{`{"theme":"terminal"}`, "terminal", "auto"},
-		{`{"theme":"dark","color_mode":"auto"}`, "classic", "auto"},
+		{`{"theme":"dark","color_mode":"auto"}`, "terminal", "auto"},
 	} {
 		s, err := Open(filepath.Join(t.TempDir(), "state"))
 		if err != nil {

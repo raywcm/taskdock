@@ -172,8 +172,8 @@ Unix UID. Older brokers retain ordinary exclusive attach.
 
 ## Monitor and settings
 
-In the TUI, new sessions open selected in the monitor. In the task list, Enter
-opens a session fullscreen; `v` opens the monitor. Ordinary input, Enter, ←/→,
+New sessions open fullscreen. Ctrl+Q or F12 returns to the list with the new
+session selected. Enter opens it fullscreen again; `v` opens the monitor. Ordinary input, Enter, ←/→,
 Ctrl+C/D and pasted text in the monitor go to the application. Shift+↑/↓ sends
 ordinary application arrow keys. ↑/↓ switches sessions.
 Ctrl+Q, F12 or Esc returns to the list. To enter a session, return
@@ -210,7 +210,8 @@ and discards unsaved changes.
 
 Theme controls selection and backgrounds. Classic highlights the selected row.
 Terminal keeps your terminal’s background and marks the selection with a `›`,
-bright cyan in Dark mode and blue in Light mode. The arrow also works in monochrome.
+bright cyan in Dark mode and blue in Light mode. Heavy dividers and the bold
+session footer use the terminal’s own foreground. The arrow also works in monochrome.
 
 Color mode applies to either theme. Automatic detects the terminal background
 and falls back to `COLORFGBG` when available. Select Dark or Light to override
@@ -231,10 +232,10 @@ tdock settings set default-tab stop
 tdock settings reset
 ```
 
-Themes are `classic` (default) and `terminal`. Color modes are `auto` (default),
-`dark`, and `light`. An existing Dark or Light preference opens in Classic with
-that color mode. An existing Terminal preference opens in Terminal with automatic
-colors. Older commands such as `tdock settings set theme dark` still set the color mode.
+Fresh settings use the Terminal theme and automatic color mode. Saved Classic
+or Terminal choices are preserved. Old settings that only specify Dark or Light
+keep that color mode and use Terminal. The legacy spelling
+`tdock settings set theme dark` still changes the color mode.
 
 Languages include auto, en, zh-CN, ja, es, and fr. Refresh intervals are 1, 2,
 or 5 seconds. CPU/RSS cover the task process tree and can count shared memory

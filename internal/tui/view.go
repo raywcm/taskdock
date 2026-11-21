@@ -22,6 +22,13 @@ type palette struct {
 	colorMode     string
 }
 
+func (p palette) rule(width int) string {
+	if p.terminal {
+		return strings.Repeat("━", width)
+	}
+	return p.muted.Render(strings.Repeat("─", width))
+}
+
 func (p palette) arrow(label string, selected bool) string {
 	if selected {
 		label = "› " + label
@@ -301,7 +308,7 @@ func (m model) settingsView(width int) []string {
 		{t("default_tab"), t(m.draft.DefaultTab)}, {t("auto_delete"), m.retentionLabel(m.draft.HistoryRetentionSeconds)},
 	}
 	version := t("version") + "  v" + strings.TrimPrefix(m.version, "v")
-	lines := []string{m.header(width), "", m.tabs(width), p.muted.Render(strings.Repeat("─", width)), p.muted.Render(version), ""}
+	lines := []string{m.header(width), "", m.tabs(width), p.rule(width), p.muted.Render(version), ""}
 	labelWidth := min(22, max(10, width/2))
 	valueWidth := max(1, width-labelWidth-5)
 	visible := max(1, m.height-len(lines)-2)
@@ -328,7 +335,7 @@ func (m model) helpView(width int) []string {
 	if m.monitoring {
 		tabKeys = "Tab / Shift+Tab"
 	}
-	lines := []string{m.header(width), "", p.accent.Bold(true).Render(t("keyboard_help")), p.muted.Render(strings.Repeat("─", width))}
+	lines := []string{m.header(width), "", p.accent.Bold(true).Render(t("keyboard_help")), p.rule(width)}
 	bindings := [][2]string{
 		{"↑ / ↓ · j / k", t("select")},
 		{"Shift+↑ / Shift+↓", t("move_session")},
@@ -404,7 +411,7 @@ func (m model) View() tea.View {
 		lines = m.settingsView(width)
 	} else {
 		compact := m.height < 18
-		lines = []string{m.header(width), "", m.tabs(width), p.muted.Render(strings.Repeat("─", width))}
+		lines = []string{m.header(width), "", m.tabs(width), p.rule(width)}
 		c := m.columns(max(1, width-4))
 		if !compact {
 			timeLabel := t("uptime")

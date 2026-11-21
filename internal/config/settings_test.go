@@ -60,11 +60,11 @@ func TestHistoryRetentionDefaultsAndDurations(t *testing.T) {
 func TestSettingsDraftAppliesOnlyLocalEdits(t *testing.T) {
 	before := Defaults()
 	draft := before
-	draft.Theme, draft.ShowResources, draft.HistoryRetentionSeconds = "terminal", false, 0
+	draft.Theme, draft.ShowResources, draft.HistoryRetentionSeconds = "classic", false, 0
 	other := before
 	other.Language, other.RefreshSeconds, other.DefaultTab, other.ColorMode = "fr", 5, "stop", "dark"
 	combined := other
-	combined.Theme, combined.ShowResources, combined.HistoryRetentionSeconds = "terminal", false, 0
+	combined.Theme, combined.ShowResources, combined.HistoryRetentionSeconds = "classic", false, 0
 	for _, pair := range [][2]Settings{{draft, other}, {other, draft}} {
 		got, err := pair[0].EditsFrom(before)(pair[1])
 		if err != nil || got != combined {
@@ -76,13 +76,13 @@ func TestSettingsDraftAppliesOnlyLocalEdits(t *testing.T) {
 func TestThemeAndColorModeCommands(t *testing.T) {
 	s := Defaults()
 	var err error
-	for _, cmd := range [][2]string{{"color-mode", "light"}, {"theme", "terminal"}, {"theme", "dark"}} {
+	for _, cmd := range [][2]string{{"color-mode", "light"}, {"theme", "classic"}, {"theme", "dark"}} {
 		s, err = With(s, cmd[0], cmd[1])
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
-	if s.Theme != "terminal" || s.ColorMode != "dark" {
+	if s.Theme != "classic" || s.ColorMode != "dark" {
 		t.Fatalf("legacy command overwrote theme: %+v", s)
 	}
 	for _, cmd := range [][2]string{{"color-mode", "classic"}, {"theme", "invalid"}} {

@@ -94,7 +94,7 @@ def test_monitor(h,frontend):
         os.write(fd,b'v')
         text=wait_view(fd,terminal,lambda text:'STATIC-alpha' in text and 'counter:' in text)
         screen_row=next(row for row in terminal.display if 'STATIC-alpha' in row)
-        assert screen_row.index('STATIC-alpha')>screen_row.index('│'),text
+        assert screen_row.index('STATIC-alpha')>screen_row.index('┃'),text
         until(lambda:latest_size(h,alpha)==(17,54)) # 80x24: content 76, list 19, gap 3.
         os.write(fd,b'\x1b[D\x1b[Chl') # Horizontal keys must not leave/reopen monitor.
         first=re.search(r'counter:(\d+)',text).group(1)
@@ -189,7 +189,7 @@ def test_dialogs_and_names(h):
     modal(terminal,'Name already exists','work-4-2',fd=fd)
     assert len(records(h))==count+1,'race silently created an unreviewed alternative'
     os.write(fd,b'y')
-    wait_view(fd,terminal,lambda text:'Control' in text and 'work-4-2' in text and 'Name already exists' not in text)
+    wait_view(fd,terminal,lambda text:'[work-4-2] 0:' in terminal.display[-1] and 'Name already exists' not in text)
     created=next(r for r in records(h) if r['spec']['name']=='work-4-2')
     os.write(fd,b'\x11');wait_view(fd,terminal,lambda text:terminal.alternate and 'Memory' in text)
     # Stop and delete are actual centered modals, preserving the list behind.

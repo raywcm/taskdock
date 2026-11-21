@@ -43,9 +43,9 @@ def main():
             assert len(shortcut_rows)==1 and shortcut_rows[0]==terminal.display[0], 'shortcuts must share the brand row'
             selected=next(i for i,row in enumerate(terminal.display) if 'live-work' in row)
             row=terminal.display[selected].strip()
-            assert row.startswith('│') and row.endswith('│') and '┌' not in text and '┘' not in text, 'selection must occupy one terminal row'
+            assert row.startswith('› ● live-work') and '┌' not in text and '┘' not in text, 'selection must occupy one terminal row'
             x=terminal.display[selected].index('live-work')
-            assert terminal.current.buffer[selected][x].reverse,'selected session has no inverse styling'
+            assert terminal.current.buffer[selected][x].bold and not terminal.current.buffer[selected][x].reverse
             wait_view(fd,terminal,lambda text:bool(re.search(r'[1-9]\d*(?:\.\d+)?%',text)) and 'MiB' in text)
             os.write(fd,b'\x1b[C')
             text=wait_view(fd,terminal,lambda text:'completed-work' in text)
@@ -71,7 +71,7 @@ def main():
             assert version in text and version not in terminal.display[0], 'version belongs in settings'
             tab_row=next(i for i,row in enumerate(terminal.display) if all(label in row for label in ('Running','History','Settings')))
             tab_x=terminal.display[tab_row].index('Settings')
-            assert terminal.current.buffer[tab_row][tab_x].reverse, 'settings tab was not selected'
+            assert '› Settings' in terminal.display[tab_row] and terminal.current.buffer[tab_row][tab_x].bold
             assert 'live-work' not in text and 'completed-work' not in text
             assert 'RSS' not in text and '100%' not in text and 'metrics_hint' not in text
             os.write(fd,b'\x1b[D\x1b[D') # Settings -> History -> Running
@@ -143,7 +143,7 @@ def main():
                     os.write(fd,b'y');h.finished(live)
                     wait_view(fd,terminal,lambda text:'live-work' not in text)
                 os.write(fd,b'q');drain(fd);assert h.join(pid)==0
-            print('PASS TaskDock/version, single-line inverse frame, short ID, sampled child CPU/RSS, tab filtering, F1/? help, F5 refresh, three-tab navigation/settings editor, one-line shortcuts, five languages, no metrics explanation, saved retention policy and default tab')
+            print('PASS TaskDock/version, single-line arrow selection, short ID, sampled child CPU/RSS, tab filtering, F1/? help, F5 refresh, three-tab navigation/settings editor, one-line shortcuts, five languages, no metrics explanation, saved retention policy and default tab')
             print('PASS five-language stop confirmation with name/ID, Enter cancellation protects process, explicit y stops')
         finally:h.cleanup()
 

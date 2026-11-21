@@ -205,7 +205,7 @@ func attachOnce(ctx context.Context, state string, record task.Record, input, ou
 		}
 		titleActive = true
 		var pending []Incoming
-		queryBackground := display != nil && !options.NoEscape && preferences.ColorMode == "auto" && os.Getenv("NO_COLOR") == ""
+		queryBackground := display != nil && !options.NoEscape && preferences.Theme == "classic" && preferences.ColorMode == "auto" && os.Getenv("NO_COLOR") == ""
 		if display != nil {
 			start := "\x1b[?1049h\x1b[0m\x1b[r\x1b[?6l\x1b[4l\x1b[H\x1b[2J"
 			if queryBackground {

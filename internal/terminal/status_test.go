@@ -16,7 +16,7 @@ func TestStatusLineBoundsAndSanitizesMetadata(t *testing.T) {
 	for _, width := range []int{1, 8, 20, 80, 160} {
 		s := statusScreen{name: strings.Repeat("项目", 35) + "\x1b\r\n", memory: "1023 MiB", clock: "15:45 21-Nov-26"}
 		line := s.statusLine(width)
-		if ansi.StringWidth(line) > width || strings.ContainsAny(line, "\x1b\r\n") {
+		if ansi.StringWidth(line) != width || strings.ContainsAny(line, "\x1b\r\n") {
 			t.Fatalf("invalid row at width %d: %q", width, line)
 		}
 		if width >= 24 && !strings.Contains(line, "RSS 1023 MiB") {
@@ -26,8 +26,14 @@ func TestStatusLineBoundsAndSanitizesMetadata(t *testing.T) {
 	for width := 1; width < 160; width++ {
 		s := statusScreen{name: strings.Repeat("会话", 128), windowName: "codex", title: strings.Repeat("赛", 300), mode: "Read only", memory: "1023 MiB", clock: "15:45 21-Nov-26"}
 		line := s.statusLine(width)
-		if ansi.StringWidth(line) > width || (width >= 65 && !strings.Contains(line, "] 0:codex*")) {
+		if ansi.StringWidth(line) != width || (width >= 65 && !strings.Contains(line, "] 0:codex*")) {
 			t.Fatalf("width %d: %q", width, line)
+		}
+	}
+	s := statusScreen{name: "a", command: "sh", memory: "1 MiB", rowMarker: "┃ "}
+	for width := 1; width <= 80; width++ {
+		if line := s.statusLine(width); ansi.StringWidth(line) != width {
+			t.Fatalf("footer does not fill %d columns: %q", width, line)
 		}
 	}
 	if got := sessionSize(task.Size{Cols: 80, Rows: 1}, true); got.Rows != 1 {

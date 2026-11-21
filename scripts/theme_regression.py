@@ -5,6 +5,7 @@ from integration import ENV,Harness,until,wait_output
 from screen_regression import Terminal
 from ui_regression import wait_view
 from monitor_control_regression import FIXTURE,received
+from monitor_dialog_regression import resize
 
 
 def reply(mode):
@@ -12,7 +13,7 @@ def reply(mode):
     return b'\x1b]11;rgb:' + b'/'.join([value] * 3) + b'\a'
 
 
-def check_status_theme(h, foreground, background='default', detected=None):
+def check_status_theme(h, theme, foreground, background, detected=None):
     pid, fd = h.spawn_tty('attach', 'theme-work')
     term = Terminal()
     if detected:
@@ -25,10 +26,16 @@ def check_status_theme(h, foreground, background='default', detected=None):
         cell = term.current.buffer[term.rows-1][line.index('theme-work')]
         return (cell.fg, cell.bg) == (foreground, background)
     wait_view(fd, term, ready)
-    if foreground == 'default':
+    if theme == 'terminal':
         assert term.display[-1].startswith('┃ [theme-work] 0:')
         assert term.current.buffer[term.rows-1][2].bold
-    assert all(cell.bg == background and not cell.reverse for cell in term.current.buffer[term.rows-1].values())
+    def full_row():
+        row = term.current.buffer[term.rows-1]
+        return all(row[x].bg == background and not row[x].reverse for x in range(term.columns))
+    assert full_row()
+    assert all(term.current.buffer[term.rows-2][x].bg == 'default' for x in range(term.columns))
+    resize(pid, fd, term, term.rows, 14)
+    wait_view(fd, term, lambda _: term.display[-1].rstrip() == '[theme-work]' and full_row())
     os.write(fd, b'\x1b[24~')
     assert h.join(pid) == 0
 
@@ -71,8 +78,8 @@ def check_palettes(h):
         # Theme, mode, manager foreground/background, status foreground/background.
         ('classic', 'light', '006c70', 'f6f8fc', 'blue', 'white'),
         ('classic', 'dark', '70e1c8', '141a26', 'white', 'blue'),
-        ('terminal', 'light', 'blue', 'default', 'default', 'default'),
-        ('terminal', 'dark', 'brightcyan', 'default', 'default', 'default'),
+        ('terminal', 'light', 'blue', 'default', 'ffffff', '005f5f'),
+        ('terminal', 'dark', 'brightcyan', 'default', '000000', '00afaf'),
     ]
     for theme, mode, accent, background, status_fg, status_bg in palettes:
         h.cli('settings', 'set', 'theme', theme)
@@ -93,7 +100,7 @@ def check_palettes(h):
             assert cell.reverse == (theme == 'classic') and ('›' in line) == (theme == 'terminal')
             os.write(fd, b'q')
             assert h.join(pid) == 0
-            check_status_theme(h, status_fg, status_bg, detected if theme == 'classic' and preference == 'auto' else None)
+            check_status_theme(h, theme, status_fg, status_bg, detected if preference == 'auto' else None)
 
 
 def test_terminal_theme(h):
@@ -150,7 +157,7 @@ def test_terminal_theme(h):
     os.write(fd, b'q')
     assert h.join(pid) == 0
 
-    check_status_theme(h, 'default')
+    check_status_theme(h, 'terminal', 'ffffff', '005f5f')
     h.create('second', '/bin/sh', '-c', 'read hold')
     ENV['NO_COLOR'] = '1'
     pid, fd = h.spawn_tty()
@@ -161,7 +168,7 @@ def test_terminal_theme(h):
     assert selected('second').fg == selected('second').bg == 'default' and not selected('second').reverse
     os.write(fd, b'q')
     assert h.join(pid) == 0
-    check_status_theme(h, 'default')
+    check_status_theme(h, 'terminal', 'default', 'default')
 
 
 def main():

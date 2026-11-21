@@ -99,12 +99,13 @@ account after a dropped connection. Tasks do not survive a host reboot.
 | q / Ctrl+C | Exit the manager without stopping tasks |
 
 Press `,` to change **Theme** and **Color mode** independently.
-Classic highlights the selected row. The default Terminal theme keeps your terminal’s background
+Classic highlights the selected row. The default Terminal theme uses your terminal’s background for the list
 and marks the selection with a colored `›`. Both support automatic, dark, and
 light colors. Press Enter to save or Esc to cancel.
 
 Fullscreen sessions have a bottom row with the session name and process-tree
-memory use. Use `tdock --no-status` for native forwarding and terminal scrollback.
+memory use. In the Terminal theme, a solid teal background spans the full row.
+Use `tdock --no-status` for native forwarding and terminal scrollback.
 Starting a nested manager or session inside TaskDock is blocked; `ls`, `logs` and
 other management commands remain available.
 

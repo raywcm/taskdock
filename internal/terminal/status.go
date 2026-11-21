@@ -368,10 +368,17 @@ func (s *statusScreen) setAppearance(settings config.Settings, background color.
 	marker := ""
 	if settings.Theme == "terminal" {
 		marker = "┃ "
-	} else if os.Getenv("NO_COLOR") == "" {
-		if ResolveColorMode(settings.ColorMode, background) == "light" {
+	}
+	if os.Getenv("NO_COLOR") == "" {
+		mode := ResolveColorMode(settings.ColorMode, background)
+		switch {
+		case settings.Theme == "terminal" && mode == "dark":
+			style = style.ForegroundColor(ansi.IndexedColor(16)).BackgroundColor(ansi.IndexedColor(37))
+		case settings.Theme == "terminal":
+			style = style.ForegroundColor(ansi.IndexedColor(231)).BackgroundColor(ansi.IndexedColor(23))
+		case mode == "light":
 			style = style.ForegroundColor(ansi.Blue).BackgroundColor(ansi.White)
-		} else {
+		default:
 			style = style.ForegroundColor(ansi.White).BackgroundColor(ansi.Blue)
 		}
 	}
@@ -410,7 +417,8 @@ func (s *statusScreen) statusLine(width int) string {
 	}
 	room := width - ansi.StringWidth(right)
 	if room < 8 {
-		return marker + ansi.Truncate("["+name+"]", width, "…")
+		label := ansi.Truncate("["+name+"]", width, "…")
+		return marker + label + strings.Repeat(" ", width-ansi.StringWidth(label))
 	}
 	if s.title != "" && room >= 18 {
 		right = " \"" + ansi.Truncate(s.title, room/2-2, "…") + "\"" + right

@@ -30,7 +30,8 @@ every two seconds. The size owner gives
 the application one fewer row. Followers crop the owner's screen and keep their
 own status row. A follower shows the application's cursor when it falls inside
 the visible part of the screen. The status row follows the chosen theme and
-color mode. Terminal keeps the terminal’s default background.
+color mode. In the Terminal theme, the whole row uses black text on bright teal in Dark
+mode and white text on dark teal in Light mode.
 
 With cell-based mouse tracking, the status row ignores clicks and wheel events.
 Dragging from the application into the status row releases at the edge of the
@@ -209,9 +210,9 @@ Settings shows the installed version. Open the editor with Enter or `,`.
 and discards unsaved changes.
 
 Theme controls selection and backgrounds. Classic highlights the selected row.
-Terminal keeps your terminal’s background and marks the selection with a `›`,
-bright cyan in Dark mode and blue in Light mode. Heavy dividers and the bold
-session footer use the terminal’s own foreground. The arrow also works in monochrome.
+The Terminal session list uses your terminal’s background and marks the selection with a `›`,
+bright cyan in Dark mode and blue in Light mode. The list dividers use the
+terminal’s own foreground. The arrow also works in monochrome.
 
 Color mode applies to either theme. Automatic detects the terminal background
 and falls back to `COLORFGBG` when available. Select Dark or Light to override

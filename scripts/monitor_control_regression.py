@@ -153,11 +153,24 @@ def main():
                 )
                 os.write(tty_fd, b"\x1b:w\r")
                 until(lambda: path.exists() and path.read_text().strip() == "Hello 世界")
+                os.write(tty_fd, b":set mouse=a ttymouse=sgr\r"
+                                 b":call setline(1, map(range(1, 100), 'printf(\"SCROLL-%03d\", v:val)'))\rgg")
+                wait_view(tty_fd, terminal, lambda text: "SCROLL-001" in text)
+                os.write(tty_fd, b"\x1b[24~")
+                wait_view(tty_fd, terminal, lambda text: "Memory" in text)
+                os.write(tty_fd, b"v")
+                wait_view(tty_fd, terminal, lambda text: "Control" in text and "SCROLL-001" in text
+                          and 1006 << 5 in terminal.current.mode)
+                os.write(tty_fd, b"\x1b[<65;38;10M" * 4)
+                wait_view(tty_fd, terminal, lambda text: "SCROLL-020" in text and "SCROLL-001" not in text)
+                os.write(tty_fd, b"\x1b[<64;38;10M" * 5)
+                wait_view(tty_fd, terminal, lambda text: "SCROLL-001" in text)
                 os.write(tty_fd, b"\x1b[24~")
                 wait_view(tty_fd, terminal, lambda text: "Memory" in text)
                 os.write(tty_fd, b"q")
                 assert harness.join(pid) == 0
-            print("PASS monitor input, navigation, detach keys and Vim editing")
+                print("PASS Vim editing and bidirectional mouse wheel scrolling in the monitor")
+            print("PASS monitor input, navigation and detach keys")
         finally:
             harness.cleanup()
 

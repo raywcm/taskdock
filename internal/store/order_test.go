@@ -93,3 +93,36 @@ func TestMoveStaysWithinRunningOrStoppedTab(t *testing.T) {
 		t.Fatal("invalid direction accepted")
 	}
 }
+
+func TestUnreadableOrderKeepsCatalogAvailable(t *testing.T) {
+	for _, contents := range []string{
+		"{",
+		`{"schema_version":2}`,
+		`{"schema_version":1,"ids":["bad"]}`,
+		`{"schema_version":1,"ids":["0123456789abcdef0123456789abcdef","0123456789abcdef0123456789abcdef"]}`,
+	} {
+		s, first := fixture(t)
+		ctx := context.Background()
+		second := first
+		second.ID, _ = task.NewID()
+		second.CreatedAt = first.CreatedAt.Add(time.Second)
+		if err := s.Create(ctx, second); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(s.Root(), "order.json")
+		if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
+			t.Fatal(err)
+		}
+		rows, warnings, err := s.ListWithWarnings(ctx)
+		if err != nil || len(warnings) != 1 || len(rows) != 2 || rows[0].Spec.ID != first.ID || rows[1].Spec.ID != second.ID {
+			t.Fatalf("order %q: got %d rows, warnings %v, err %v", contents, len(rows), warnings, err)
+		}
+		if err := s.Move(ctx, second.ID, -1); err == nil {
+			t.Fatal("move overwrote unreadable order")
+		}
+		after, err := os.ReadFile(path)
+		if err != nil || string(after) != contents {
+			t.Fatalf("saved order changed: %q, %v", after, err)
+		}
+	}
+}

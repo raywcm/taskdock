@@ -10,8 +10,15 @@ import (
 func (m model) hasDialog() bool {
 	return m.mode == "stop" || m.mode == "delete" || m.mode == "takeover" || m.mode == "name-conflict" || m.mode == "new" || m.mode == "rename"
 }
-func (m model) dialog(base string) string {
+func (m model) dialogBody(textWidth int, p palette) []string {
 	t := m.locale().Text
+	if m.mode == "new" || m.mode == "rename" {
+		prompt := t("new_prompt")
+		if m.mode == "rename" {
+			prompt = t("rename_prompt")
+		}
+		return append(strings.Split(ansi.Wrap(prompt, textWidth, ""), "\n"), "", m.input.View(), "", t("edit_hint"), m.status(textWidth))
+	}
 	title, prompt, action := t("confirm_stop"), t("stop_prompt"), t("stop_action")
 	switch m.mode {
 	case "delete":
@@ -21,9 +28,6 @@ func (m model) dialog(base string) string {
 	case "name-conflict":
 		title, prompt, action = t("name_conflict"), t("name_conflict_prompt"), t("use_name")
 	}
-	width := max(10, min(68, m.width-6))
-	textWidth := max(6, width-6)
-	inputDialog := m.mode == "new" || m.mode == "rename"
 	var details []string
 	if m.mode == "name-conflict" {
 		details = []string{t("requested_name") + ": " + safe(m.conflictName), t("suggested_name") + ": " + safe(m.proposedName)}
@@ -44,9 +48,7 @@ func (m model) dialog(base string) string {
 	}
 	buttons := []string{"[ " + t("cancel") + " ]", "[ " + action + " ]"}
 	for i := range buttons {
-		if i == m.confirmChoice {
-			buttons[i] = lipgloss.NewStyle().Bold(true).Reverse(true).Render(buttons[i])
-		}
+		buttons[i] = p.choice(buttons[i], i == m.confirmChoice)
 	}
 	body = append(body, "")
 	if ansi.StringWidth(strings.Join(buttons, "   ")) > textWidth {
@@ -54,22 +56,28 @@ func (m model) dialog(base string) string {
 	} else {
 		body = append(body, strings.Join(buttons, "   "))
 	}
-	body = append(body, ansi.Truncate(t("confirm_hint"), textWidth, "…"))
-	if inputDialog {
-		prompt := t("new_prompt")
-		if m.mode == "rename" {
-			prompt = t("rename_prompt")
-		}
-		body = append(strings.Split(ansi.Wrap(prompt, textWidth, ""), "\n"), "", m.input.View(), "", t("edit_hint"), m.status(textWidth))
-	}
-	bg, fg, border := "#202C3D", "#EFF5FF", "#F2C078"
-	if m.settings.Theme == "light" {
-		bg, fg, border = "#FFFFFF", "#243141", "#986000"
-	}
+	return append(body, t("confirm_hint"))
+}
+
+func (m model) dialog(base string) string {
+	p := m.palette()
+	width := max(10, min(68, m.width-6))
+	textWidth := max(6, width-6)
+	body := m.dialogBody(textWidth, p)
 	for i := range body {
 		body[i] = ansi.Truncate(body[i], textWidth, "…")
 	}
-	box := lipgloss.NewStyle().Width(width).Padding(1, 2).Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(border)).Background(lipgloss.Color(bg)).Foreground(lipgloss.Color(fg)).Render(strings.Join(body, "\n"))
+	boxStyle := lipgloss.NewStyle().Width(width).Padding(1, 2).Border(lipgloss.RoundedBorder()).BorderForeground(p.accent.GetForeground())
+	dimStyle := p.muted
+	if !p.terminal {
+		bg, fg, border := "#202C3D", "#EFF5FF", "#F2C078"
+		if p.colorMode == "light" {
+			bg, fg, border = "#FFFFFF", "#243141", "#986000"
+		}
+		boxStyle = boxStyle.BorderForeground(lipgloss.Color(border)).Background(lipgloss.Color(bg)).Foreground(lipgloss.Color(fg))
+		dimStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#697586"))
+	}
+	box := boxStyle.Render(strings.Join(body, "\n"))
 	x := max(0, (m.width-lipgloss.Width(box))/2)
 	y := max(0, (m.height-lipgloss.Height(box))/2)
 	// Compose complete opaque rows. Padding must replace every old cell when
@@ -77,7 +85,6 @@ func (m model) dialog(base string) string {
 	backdrop := strings.Split(ansi.Strip(base), "\n")
 	boxLines := strings.Split(box, "\n")
 	boxWidth := lipgloss.Width(box)
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#697586"))
 	lines := make([]string, m.height)
 	for i := range lines {
 		line := ""

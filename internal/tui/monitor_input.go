@@ -60,14 +60,9 @@ func (r *monitorInput) resetLocked() {
 		r.commands = append(r.commands, command)
 		return true
 	}, Ignore: monitorIgnoredKey, Transform: r.monitorInputKey, Report: func(raw []byte) bool {
-		if len(raw) < 3 || raw[0] != 0x1b || raw[1] != ']' {
-			return false
-		}
-		var decoder uv.EventDecoder
-		n, event := decoder.Decode(raw)
-		if color, ok := event.(uv.BackgroundColorEvent); ok && n == len(raw) {
+		if bg := terminal.BackgroundReply(raw); bg != nil {
 			if r.notify != nil {
-				r.notify(monitorAction{kind: "background", background: tea.BackgroundColorMsg(color)})
+				r.notify(monitorAction{kind: "background", background: tea.BackgroundColorMsg{Color: bg}})
 			}
 			return true
 		}
@@ -76,22 +71,15 @@ func (r *monitorInput) resetLocked() {
 	r.commands = nil
 }
 
-func (r *monitorInput) SetScrollArea(left, top, right, bottom int) {
+func (r *monitorInput) SetScrollArea(area image.Rectangle) {
 	r.mu.Lock()
-	r.scrollArea = image.Rect(left, top, right, bottom)
+	r.scrollArea = area
 	r.mu.Unlock()
 }
 
 func (r *monitorInput) monitorInputKey(raw []byte) []byte {
-	if r.target != nil {
-		if x, y, lines, ok := vtscreen.ScrollMouse(raw); ok {
-			if !image.Pt(x, y).In(r.scrollArea) {
-				lines = 0
-			}
-			if r.target.Scroll(lines) {
-				return nil
-			}
-		}
+	if event := vtscreen.DecodeMouse(raw); event != nil && r.target != nil {
+		return r.target.MouseInput(event, r.scrollArea)
 	}
 	return monitorApplicationKey(raw)
 }
@@ -218,11 +206,7 @@ func (r *monitorInput) route(raw []byte, fromRead bool) []byte {
 		r.resetLocked()
 	} else if r.decoder.PendingEscape() {
 		generation := r.timerGeneration
-		delay := 50 * time.Millisecond
-		if r.decoder.PendingReport() {
-			delay = 500 * time.Millisecond
-		}
-		r.timer = time.AfterFunc(delay, func() { r.flush(target, generation) })
+		r.timer = time.AfterFunc(r.decoder.EscapeTimeout(), func() { r.flush(target, generation) })
 	}
 	r.mu.Unlock()
 	if len(data) > 0 {

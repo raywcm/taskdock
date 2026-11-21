@@ -3,10 +3,12 @@
 package terminal
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/term"
 )
@@ -229,8 +231,14 @@ func (d *EscapeDecoder) Flush() []byte {
 // PendingEscape reports a partial terminal sequence requiring a short timeout.
 func (d *EscapeDecoder) PendingEscape() bool { return len(d.escape) != 0 }
 
-func (d *EscapeDecoder) PendingReport() bool {
-	return d.Report != nil && len(d.escape) >= 2 && d.escape[1] == ']'
+// After a terminal report introduces itself, allow a split payload to arrive
+// without delaying standalone Esc or ordinary key sequences.
+func (d *EscapeDecoder) EscapeTimeout() time.Duration {
+	if !d.pasting && ((d.Report != nil && bytes.HasPrefix(d.escape, []byte("\x1b]"))) ||
+		(d.Transform != nil && bytes.HasPrefix(d.escape, []byte("\x1b[<")))) {
+		return 500 * time.Millisecond
+	}
+	return 50 * time.Millisecond
 }
 
 // FlushEscape forwards a standalone Esc or truncated escape sequence.

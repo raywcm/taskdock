@@ -22,7 +22,15 @@ Tasks accept names, full IDs or unique ID prefixes of at least four characters.
 Fullscreen sessions show their name, short ID and process-tree RSS in a fixed
 bottom row. Memory and renames refresh every two seconds. The size owner gives
 the application one fewer row. Followers crop the owner's screen and keep their
-own status row.
+own status row. A follower shows the application's cursor when it falls inside
+the visible part of the screen. The status row follows the chosen theme and
+color mode. Terminal keeps the terminal’s default background.
+
+With cell-based mouse tracking, the status row ignores clicks and wheel events.
+Dragging from the application into the status row releases at the edge of the
+application. With classic mouse reporting, a drag beyond row or column 223
+releases at the last coordinate the application can receive. Pixel tracking
+uses the visible bounds when the terminal reports its pixel dimensions. Without those dimensions, pixel reports pass through.
 
 The status view renders a bounded VT screen in the alternate buffer. Use
 `tdock --no-status` for native forwarding and host-terminal scrollback, or
@@ -60,8 +68,11 @@ Existing scripts should replace `list` with `ls`, `status` with `show`, `rm` wit
 ## View existing tmux sessions
 
 Press `t` in the TaskDock session list to browse the current tmux server. Select a
-session with the arrow keys and press Enter to preview its active pane. The view
-refreshes once a second. Esc returns to the list. Browsing requires the tmux
+session with the arrow keys and press Enter to preview its active pane. Use ↑/↓
+or PgUp/PgDn to scroll within the captured pane and ←/→ to read wide lines.
+The wheel and trackpad also scroll when the captured pane exceeds the preview.
+Home shows the top left. End follows the bottom as the preview refreshes once
+a second. Esc returns to the list. Browsing requires the tmux
 executable and access to the server as the current user.
 
 ```sh
@@ -89,8 +100,9 @@ behavior. Ctrl+B and Ctrl+] pass directly to the application.
 
 `tdock attach --no-escape TASK` disables Ctrl+Q and F12 handling.
 Close the terminal or end the frontend to disconnect in that mode. Bracketed
-paste passes through without interpreting detach keys. Incomplete escape
-sequences wait up to 50 ms before being forwarded.
+paste passes through without interpreting detach keys. A standalone Esc waits
+up to 50 ms. Recognized mouse report prefixes allow up to 500 ms between input
+fragments on a slow connection.
 
 ## Manage tasks
 
@@ -129,8 +141,9 @@ tdock settings set history-retention 24h
 tdock settings set history-retention off
 ```
 
-In the History tab, Enter opens retained output. Use arrows, PgUp/PgDn, Home/End to
-navigate; Esc/q returns. Viewing history does not restart the task.
+In the History tab, Enter opens retained output. Use the wheel, arrow keys,
+PgUp/PgDn or Home/End to navigate. Esc or q returns to the list. Viewing
+history does not restart the task.
 
 ## Multiple clients
 
@@ -165,9 +178,10 @@ The monitor joins shared control, including when another terminal is attached.
 The oldest controller sets the PTY size; other monitors crop the same screen to
 their panes. When that controller leaves, the next one applies its own size.
 Unavailable tasks display “Unable to monitor”. F5 retries.
-Ctrl+Q/F12 or Esc returns to the list. Embedded
-control supports keyboard input; use `attach --no-status` for native terminal
-behavior and terminal extensions.
+Ctrl+Q/F12 or Esc returns to the list. Applications with cell-based mouse
+tracking receive wheel, click and drag events relative to their pane. Releasing
+a drag outside the pane releases it at the nearest edge. For pixel-based mouse reporting
+or native terminal extensions, use `attach --no-status`.
 
 For applications that use the terminal's normal screen without mouse tracking,
 use the wheel or trackpad in the session or monitor pane to review up to 1,000
@@ -187,19 +201,37 @@ Settings shows the installed version. Open the editor with Enter or `,`.
 ↑/↓ selects a field, ←/→ changes it, Enter saves, Esc cancels. Tab switches tabs
 and discards unsaved changes.
 
+Theme controls selection and backgrounds. Classic highlights the selected row.
+Terminal keeps your terminal’s background and marks the selection with a `›`,
+bright cyan in Dark mode and blue in Light mode. The arrow also works in monochrome.
+
+Color mode applies to either theme. Automatic detects the terminal background
+and falls back to `COLORFGBG` when available. Select Dark or Light to override
+detection. Session previews and attached applications keep their own colors.
+
+Two terminals can save different settings concurrently. Saving the editor applies
+the fields you changed and displays the merged preferences. When both terminals
+edit the same field, the last save takes effect.
+
 ```sh
 tdock settings --json
 tdock settings set language en
-tdock settings set theme dark
+tdock settings set theme terminal
+tdock settings set color-mode light
 tdock settings set refresh 2
 tdock settings set resources off
 tdock settings set default-tab stop
 tdock settings reset
 ```
 
-Languages: auto, en, zh-CN, ja, es, fr. Themes: auto, dark, light. Refresh: 1, 2 or
-5 seconds. CPU/RSS cover the task process tree; shared memory can be counted more
-than once.
+Themes are `classic` (default) and `terminal`. Color modes are `auto` (default),
+`dark`, and `light`. An existing Dark or Light preference opens in Classic with
+that color mode. An existing Terminal preference opens in Terminal with automatic
+colors. Older commands such as `tdock settings set theme dark` still set the color mode.
+
+Languages include auto, en, zh-CN, ja, es, and fr. Refresh intervals are 1, 2,
+or 5 seconds. CPU/RSS cover the task process tree and can count shared memory
+more than once.
 
 ## Storage and recovery
 
@@ -216,8 +248,6 @@ be recovered; `tdock recover TASK` reconciles stale records without signalling
 old PIDs. Installation replaces the executable atomically and leaves existing
 brokers running. See [compatibility](compatibility.md) for terminal limitations.
 
-Automatic theme reads the terminal background and uses the same colors as the
-matching Light/Dark setting. COLORFGBG is a fallback for terminals without a
-background-color reply; explicit theme choices always take priority.
-Themes style the manager UI. Session previews and native attachments keep the
-application's colors and terminal defaults.
+If TaskDock cannot read the history retention setting, it keeps existing history
+and continues recovering lost sessions. Session controls remain available.
+Repair `settings.json` or run `tdock settings reset` to restore the defaults.

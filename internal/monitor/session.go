@@ -7,11 +7,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"io"
 	"os"
 	"sync"
 	"time"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 	"github.com/raywcm/taskdock/internal/ipc"
@@ -29,6 +31,7 @@ type Frame struct {
 	CursorHidden                    bool
 	Alternate                       bool
 	Scrollable                      bool
+	Mouse                           vtscreen.MouseModes
 	Ready, Ended                    bool
 	Err                             error
 }
@@ -44,6 +47,7 @@ type Session struct {
 	followLive bool
 	viewport   vtscreen.Viewport
 	mouse      vtscreen.MouseModes
+	capture    vtscreen.MouseCapture
 }
 
 var ErrEmulation = errors.New("terminal preview parser failed")
@@ -120,15 +124,23 @@ func (s *Session) Input(data []byte) error {
 }
 func (s *Session) Close() { s.cancel(); <-s.done }
 
-// Scroll queues a local viewport change without sending input to the task.
-func (s *Session) Scroll(lines int) bool {
+// MouseInput maps host coordinates to the visible part of the task screen.
+func (s *Session) MouseInput(event uv.MouseEvent, area image.Rectangle) []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.frame.Scrollable || s.frame.Err != nil || s.frame.Ended {
-		return false
+	frame := s.frame
+	if !frame.Ready || frame.Err != nil || frame.Ended {
+		return nil
 	}
-	s.scroll = min(vtscreen.ScrollbackLimit, max(-vtscreen.ScrollbackLimit, s.scroll+lines))
-	return true
+	area = area.Intersect(uv.Rect(area.Min.X, area.Min.Y, frame.Width, frame.Height))
+	if frame.Scrollable {
+		mouse := event.Mouse()
+		if image.Pt(mouse.X, mouse.Y).In(area) {
+			s.scroll = min(vtscreen.ScrollbackLimit, max(-vtscreen.ScrollbackLimit, s.scroll+vtscreen.WheelLines(mouse.Button)))
+		}
+		return nil
+	}
+	return s.capture.Input(frame.Mouse, event, area)
 }
 
 func dimensions(size task.Size) (int, int) {
@@ -163,8 +175,11 @@ func (s *Session) publish(e *vt.Emulator, err error, ended bool) {
 		s.viewport.Reset()
 	}
 	frame := screenFrame(e, &s.viewport)
-	frame.Err, frame.Ended, frame.Scrollable = err, ended, scrollable
+	frame.Err, frame.Ended, frame.Scrollable, frame.Mouse = err, ended, scrollable, s.mouse
 	s.mu.Lock()
+	if frame.Mouse != s.frame.Mouse {
+		s.capture.Reset()
+	}
 	s.frame = frame
 	s.mu.Unlock()
 }

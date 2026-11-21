@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image/color"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,7 +29,7 @@ const (
 	tabCount
 )
 
-const settingsCount = 6
+const settingsCount = 7
 
 var tabNames = [...]string{"running", "stop", "settings"}
 
@@ -37,7 +39,7 @@ type Backend interface {
 	Rename(context.Context, string, string) error
 	Delete(context.Context, string) error
 	Settings() (config.Settings, error)
-	SaveSettings(context.Context, config.Settings) error
+	UpdateSettings(context.Context, config.SettingsEdit) (config.Settings, error)
 	Resources(context.Context, []task.Record) map[task.ID]task.Resources
 	NameSuggestion(context.Context, string, task.ID) (string, error)
 	Monitor(context.Context, task.ID, task.Size) (*monitor.Session, error)
@@ -116,7 +118,7 @@ type model struct {
 	generation                           uint64
 	cancelLoad                           context.CancelFunc
 	message                              string
-	backgroundKnown, darkBackground      bool
+	background                           color.Color
 }
 
 func newModel(ctx context.Context, catalog Backend, notice error, options Options) model {
@@ -129,6 +131,11 @@ func newModel(ctx context.Context, catalog Backend, notice error, options Option
 	}
 	edit := textinput.New()
 	edit.CharLimit = 128
+	// Let text entry inherit the current foreground, including on light backgrounds.
+	inputStyle := edit.Styles()
+	inputStyle.Focused.Prompt = inputStyle.Focused.Text
+	inputStyle.Cursor.Color = nil
+	edit.SetStyles(inputStyle)
 	m := model{ctx: ctx, catalog: catalog, input: edit, width: 80, height: 24, settings: settings, err: notice, version: options.Version, initial: options.State.Selected, now: time.Now()}
 	tab := options.State.Tab
 	if tab == "" {
@@ -278,8 +285,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if updated.monitorInput != nil {
 		updated.monitorInput.Arm(updated.tab == tabRunning && !updated.monitoring && updated.mode == "" && !updated.busy && !updated.tooSmall())
 		if updated.monitoring {
-			left, width, height := updated.monitorGeometry()
-			updated.monitorInput.SetScrollArea(left+5, 5, left+5+width, 5+height)
+			updated.monitorInput.SetScrollArea(updated.appArea())
 		}
 	}
 	// Switching modal geometry over a live pane can confuse hardware-scroll
@@ -313,7 +319,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.BackgroundColorMsg:
 		if msg.Color != nil {
-			m.backgroundKnown, m.darkBackground = true, msg.IsDark()
+			m.background = msg.Color
 			return m, tea.ClearScreen
 		}
 		return m, nil
@@ -360,9 +366,8 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.history.ready = true
 		m.history.err = msg.err
-		m.history.lines = msg.lines
-		m.history.maxWidth = msg.maxWidth
-		m.history.y = max(0, len(msg.lines)-m.historyHeight())
+		m.history.textViewport = msg.textViewport
+		m.history.y = m.history.bottom(m.historyHeight())
 		return m, tea.ClearScreen
 	case checkedName:
 		m.busy = false
@@ -484,14 +489,13 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.startLoad()
 	case saved:
 		m.busy = false
-		if msg.err != nil {
-			m.err = msg.err
+		m.err = msg.err
+		if msg.err != nil && msg.settings.SchemaVersion == 0 {
 			return m, nil
 		}
 		m.settings = msg.settings
 		m.draft = msg.settings
 		m.settingsEditing = false
-		m.err = nil
 		m.message = m.locale().Text("saved")
 		return m, m.startLoad()
 	case tick:
@@ -503,18 +507,16 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, tickCmd())
 	case tea.WindowSizeMsg:
 		changed := m.width != msg.Width || m.height != msg.Height
-		atHistoryEnd := m.mode == "history" && m.history.y == max(0, len(m.history.lines)-m.historyHeight())
+		if m.mode == "history" {
+			m.history.resize(msg.Width-4, m.historyHeight(), msg.Height-historyChromeRows)
+		} else if m.mode == "tmux-view" {
+			m.tmux.resize(msg.Width-4, m.height-tmuxHeaderRows, msg.Height-tmuxHeaderRows)
+		}
 		m.width, m.height = max(1, msg.Width), max(1, msg.Height)
 		if m.mode == "search" {
 			m.input.SetWidth(max(4, min(68, m.width-12)))
 		} else {
 			m.input.SetWidth(max(4, min(68, m.width-6)-9))
-		}
-		if m.mode == "history" {
-			if atHistoryEnd {
-				m.history.y = max(0, len(m.history.lines)-m.historyHeight())
-			}
-			m.clampHistory()
 		}
 		if changed && m.monitorSession != nil && m.width >= 50 && m.height >= 12 {
 			m.monitorSession.Resize(m.monitorSize())
@@ -524,6 +526,11 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = tea.Batch(cmd, tea.ClearScreen)
 		}
 		return m, cmd
+	case tea.MouseWheelMsg:
+		if view, area := m.scrollableText(); view != nil {
+			view.wheel(msg, area)
+		}
+		return m, nil
 	case tea.PasteMsg:
 		if m.tooSmall() {
 			return m, nil
@@ -731,24 +738,8 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.selectTab(m.tab + 1)
-			case "up", "k":
-				m.cursors[m.tab] = max(0, m.cursors[m.tab]-1)
-				return m, m.syncMonitor()
-			case "down", "j":
-				m.cursors[m.tab] = min(max(0, len(m.rows(m.tab))-1), m.cursors[m.tab]+1)
-				return m, m.syncMonitor()
-			case "pgup", "pgdown", "home", "end":
-				last := max(0, len(m.rows(m.tab))-1)
-				step := max(1, m.height-8)
-				if k == "pgup" {
-					step = -step
-				}
-				m.cursors[m.tab] = min(last, max(0, m.cursors[m.tab]+step))
-				if k == "home" {
-					m.cursors[m.tab] = 0
-				} else if k == "end" {
-					m.cursors[m.tab] = last
-				}
+			case "up", "k", "down", "j", "pgup", "pgdown", "home", "end":
+				m.cursors[m.tab] = scrollRow(k, m.cursors[m.tab], max(1, m.height-8), len(m.rows(m.tab))-1)
 				return m, m.syncMonitor()
 			case "r", "f5":
 				m.err = nil
@@ -899,20 +890,17 @@ func (m model) updateSettings(k string) (tea.Model, tea.Cmd) {
 	case "right", "l", " ":
 		m.adjustSetting(1)
 	case "enter":
-		settings := m.draft
+		edit := m.draft.EditsFrom(m.settings)
 		m.busy = true
-		return m, func() tea.Msg { return saved{settings, m.catalog.SaveSettings(m.ctx, settings)} }
+		return m, func() tea.Msg {
+			settings, err := m.catalog.UpdateSettings(m.ctx, edit)
+			return saved{settings, err}
+		}
 	}
 	return m, nil
 }
-func cycle(value string, options []string, step int) string {
-	index := 0
-	for i, item := range options {
-		if item == value {
-			index = i
-			break
-		}
-	}
+func cycle[T comparable](value T, options []T, step int) T {
+	index := max(0, slices.Index(options, value))
 	return options[(index+step+len(options))%len(options)]
 }
 func (m *model) adjustSetting(step int) {
@@ -920,21 +908,16 @@ func (m *model) adjustSetting(step int) {
 	case 0:
 		m.draft.Language = cycle(m.draft.Language, config.LanguageCodes(), step)
 	case 1:
-		m.draft.Theme = cycle(m.draft.Theme, []string{"auto", "dark", "light"}, step)
+		m.draft.Theme = cycle(m.draft.Theme, config.Themes(), step)
 	case 2:
-		values := []int{1, 2, 5}
-		index := 0
-		for i, v := range values {
-			if v == m.draft.RefreshSeconds {
-				index = i
-			}
-		}
-		m.draft.RefreshSeconds = values[(index+step+3)%3]
+		m.draft.ColorMode = cycle(m.draft.ColorMode, config.ColorModes(), step)
 	case 3:
-		m.draft.ShowResources = !m.draft.ShowResources
+		m.draft.RefreshSeconds = cycle(m.draft.RefreshSeconds, []int{1, 2, 5}, step)
 	case 4:
-		m.draft.DefaultTab = cycle(m.draft.DefaultTab, []string{"running", "stop"}, step)
+		m.draft.ShowResources = !m.draft.ShowResources
 	case 5:
+		m.draft.DefaultTab = cycle(m.draft.DefaultTab, []string{"running", "stop"}, step)
+	case 6:
 		values := []int64{0, 300, 900, 1800, 3600, 21600, 86400, 604800}
 		current := m.draft.HistoryRetentionSeconds
 		if step > 0 {

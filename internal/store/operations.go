@@ -45,7 +45,7 @@ func (s *JSON) BrokerLock(id task.ID) (func(), error) {
 // only after taking its exclusive lock, without relying on stored PIDs.
 func (s *JSON) RetireOrphan(ctx context.Context, id task.ID, now time.Time) (task.Record, error) {
 	record, err := s.Load(ctx, id)
-	if err != nil || record.Runtime == nil || !task.CanTransition(record.Runtime.State, task.Failed) {
+	if err != nil || (record.Runtime != nil && !task.CanTransition(record.Runtime.State, task.Failed)) {
 		return record, err
 	}
 	release, err := s.BrokerLock(id)
@@ -55,13 +55,23 @@ func (s *JSON) RetireOrphan(ctx context.Context, id task.ID, now time.Time) (tas
 	defer release()
 	// The broker may have saved a normal exit immediately before releasing its lock.
 	record, err = s.Load(ctx, id)
-	if err != nil || record.Runtime == nil || !task.CanTransition(record.Runtime.State, task.Failed) {
+	if err != nil || (record.Runtime != nil && !task.CanTransition(record.Runtime.State, task.Failed)) {
 		return record, err
 	}
-	runtime := *record.Runtime
+	var runtime task.Runtime
+	if record.Runtime == nil {
+		instance, err := task.NewID()
+		if err != nil {
+			return record, err
+		}
+		runtime = task.Runtime{SchemaVersion: task.SchemaVersion, TaskID: id, InstanceID: instance,
+			Error: "session startup was interrupted before the broker recorded its state"}
+	} else {
+		runtime = *record.Runtime
+		runtime.Error = "broker disappeared; child session may need manual inspection"
+	}
 	finished := now.UTC()
 	runtime.State = task.Failed
-	runtime.Error = "broker disappeared; child session may need manual inspection"
 	runtime.UpdatedAt = finished
 	runtime.FinishedAt = &finished
 	if err := s.SaveRuntime(ctx, runtime); err != nil {

@@ -39,17 +39,17 @@ func NewRoot() *cobra.Command {
 		}
 		return service.New(dir)
 	}
+	var root *cobra.Command
 	open := func() (*service.Manager, error) {
 		manager, err := openStore()
 		if err != nil {
 			return nil, err
 		}
 		if err := manager.EnableHistory(); err != nil {
-			return nil, fmt.Errorf("history cleanup: %w", err)
+			fmt.Fprintln(root.ErrOrStderr(), "TaskDock: history cleanup:", err)
 		}
 		return manager, nil
 	}
-	var root *cobra.Command
 	root = &cobra.Command{Use: "tdock", Short: "Independent terminal task manager", Version: Version, Args: cobra.NoArgs, SilenceUsage: true, SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			input, ok := cmd.InOrStdin().(*os.File)
@@ -445,7 +445,7 @@ func NewRoot() *cobra.Command {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(settings)
 		}
 		l := i18n.New(settings.Language)
-		_, err = fmt.Fprintf(cmd.OutOrStdout(), "TaskDock · %s\n%s: %s (%s)\n%s: %s\n%s: %ds\n%s: %t\n%s: %s\n", l.Text("settings"), l.Text("language"), settings.Language, l.Language, l.Text("theme"), settings.Theme, l.Text("interval"), settings.RefreshSeconds, l.Text("resources"), settings.ShowResources, l.Text("default_tab"), settings.DefaultTab)
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "TaskDock · %s\n%s: %s (%s)\n%s: %s\n%s: %s\n%s: %ds\n%s: %t\n%s: %s\n", l.Text("settings"), l.Text("language"), settings.Language, l.Language, l.Text("theme"), settings.Theme, l.Text("color_mode"), settings.ColorMode, l.Text("interval"), settings.RefreshSeconds, l.Text("resources"), settings.ShowResources, l.Text("default_tab"), settings.DefaultTab)
 		if err != nil {
 			return err
 		}
@@ -463,25 +463,17 @@ func NewRoot() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		settings, err := m.Settings()
-		if err != nil {
-			return err
-		}
-		settings, err = config.With(settings, args[0], args[1])
-		if err != nil {
-			return err
-		}
-		if err := m.SaveSettings(cmd.Context(), settings); err != nil {
-			return err
-		}
-		return m.EnableHistory()
+		_, err = m.UpdateSettings(cmd.Context(), func(current config.Settings) (config.Settings, error) {
+			return config.With(current, args[0], args[1])
+		})
+		return err
 	}})
 	preferences.AddCommand(&cobra.Command{Use: "reset", Short: "Reset interface preferences", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		m, err := openStore()
 		if err != nil {
 			return err
 		}
-		if err := m.SaveSettings(cmd.Context(), config.Defaults()); err != nil {
+		if err := m.Store.SaveSettings(cmd.Context(), config.Defaults()); err != nil {
 			return err
 		}
 		return m.EnableHistory()

@@ -3,10 +3,10 @@ package store
 import (
 	"context"
 	"errors"
-	"github.com/raywcm/taskdock/internal/config"
-	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/raywcm/taskdock/internal/config"
 )
 
 // OpenExisting lets maintenance exit if its state directory was removed, without
@@ -34,10 +34,16 @@ func (s *JSON) HistoryLock() (func(), error) {
 // Read only retention policy: an older worker must not fail just because a newer
 // frontend selected a language or another preference it does not recognize.
 func (s *JSON) HistoryRetention() (time.Duration, error) {
-	settings := config.Defaults()
-	err := readJSON(filepath.Join(s.root, "settings.json"), &settings)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	defaults := config.Defaults()
+	policy, err := readSettingsFile(s.root, struct {
+		Version int    `json:"schema_version"`
+		Seconds *int64 `json:"history_retention_seconds"`
+	}{defaults.SchemaVersion, &defaults.HistoryRetentionSeconds})
+	if err != nil {
 		return 0, err
 	}
-	return settings.Retention()
+	if policy.Version != defaults.SchemaVersion || policy.Seconds == nil {
+		return 0, errors.New("settings.json: unsupported or missing history retention policy")
+	}
+	return (config.Settings{HistoryRetentionSeconds: *policy.Seconds}).Retention()
 }

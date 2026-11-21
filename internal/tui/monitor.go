@@ -8,7 +8,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/raywcm/taskdock/internal/ipc"
 	"github.com/raywcm/taskdock/internal/monitor"
@@ -35,6 +35,13 @@ func (m model) monitorGeometry() (left, right, height int) {
 func (m model) monitorSize() task.Size {
 	_, width, height := m.monitorGeometry()
 	return task.Size{Rows: uint16(min(256, max(4, height))), Cols: uint16(min(512, max(20, width)))}
+}
+func (m model) appArea() uv.Rectangle {
+	if m.tab == tabRunning && m.monitoring && m.width >= 50 && m.height >= 12 {
+		left, right, height := m.monitorGeometry()
+		return uv.Rect(left+5, 5, right, height)
+	}
+	return uv.Rectangle{}
 }
 func (m *model) closeMonitor() {
 	if m.monitorInput != nil {
@@ -111,10 +118,11 @@ func (m model) monitorView(width int) []string {
 	for y := 0; y < height; y++ {
 		label := ""
 		if i := start + y; i < len(rows) {
-			label = fit("● "+safe(rows[i].Spec.Name), left)
-			if i == m.cursors[0] {
-				label = lipgloss.NewStyle().Reverse(true).Bold(true).Render(label)
+			label = "● " + safe(rows[i].Spec.Name)
+			if !p.terminal {
+				label = fit(label, left)
 			}
+			label = p.choice(label, i == m.cursors[0])
 		}
 		content := ""
 		switch {

@@ -18,6 +18,7 @@ type Session struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 }
+type Pane struct{ ID, SessionName, Text string }
 
 func (s Server) command(ctx context.Context, args ...string) *exec.Cmd {
 	var flags []string
@@ -93,17 +94,25 @@ func (s Server) Resolve(ctx context.Context, target string) (Session, error) {
 }
 
 // Capture the visible contents of the session's active pane, as plain text.
-func (s Server) Capture(ctx context.Context, session Session) (string, error) {
-	text, err := s.output(ctx, "capture-pane", "-p", "-t", session.ID+":")
+func (s Server) Capture(ctx context.Context, session Session) (Pane, error) {
+	target := session.ID + ":"
+	// Fetch the live name and the pane in a single tmux client invocation.
+	output, err := s.output(ctx, "display-message", "-p", "-t", target, "#{pane_id} #{session_name}", ";", "capture-pane", "-p", "-t", target)
 	if err != nil {
-		return "", err
+		return Pane{}, err
 	}
-	return strings.Map(func(r rune) rune {
+	header, text, newline := strings.Cut(output, "\n")
+	id, name, space := strings.Cut(header, " ")
+	if !newline || !space || id == "" {
+		return Pane{}, errors.New("missing tmux pane header")
+	}
+	text = strings.Map(func(r rune) rune {
 		if r != '\n' && r != '\t' && unicode.IsControl(r) {
 			return -1
 		}
 		return r
-	}, text), nil
+	}, text)
+	return Pane{ID: id, SessionName: name, Text: text}, nil
 }
 
 func (s Server) Viewer(ctx context.Context, session Session) *exec.Cmd {

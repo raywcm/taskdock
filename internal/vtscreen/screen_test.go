@@ -1,12 +1,59 @@
 package vtscreen
 
 import (
+	"image"
 	"strings"
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 )
+
+func TestEmbeddedMouseEncodings(t *testing.T) {
+	for _, tc := range []struct {
+		tracking, encoding ansi.DECMode
+		raw, want          string
+		x                  int
+	}{
+		{1000, 1006, "\x1b[<80;40;10M", "\x1b[<80;5;3M", 4},
+		{1000, 0, "\x1b[<0;40;10m", "\x1b[M#%#", 4},
+		{1000, 0, "\x1b[<0;40;10M", "\x1b[M \xff#", 222},
+		{1000, 0, "\x1b[<0;40;10M", "", 223},
+		{1000, 1005, "\x1b[<0;40;10M", "\x1b[M Ā#", 223},
+		{1000, 1015, "\x1b[<65;40;10M", "\x1b[97;224;3M", 223},
+		{1002, 1006, "\x1b[<32;40;10M", "\x1b[<32;5;3M", 4},
+		{1002, 1006, "\x1b[<35;40;10M", "", 4},
+		{1003, 1006, "\x1b[<35;40;10M", "\x1b[<35;5;3M", 4},
+		{1000, 1006, "\x1b[<32;40;10M", "", 4},
+		{9, 0, "\x1b[<16;40;10M", "\x1b[M %#", 4},
+		{9, 0, "\x1b[<0;40;10m", "", 4},
+		{0, 1006, "\x1b[<64;40;10M", "", 4},
+		{1000, 1016, "\x1b[<64;40;10M", "", 4},
+	} {
+		modes := MouseModes{Tracking: tc.tracking, Encoding: tc.encoding}
+		event := DecodeMouse([]byte(tc.raw))
+		if got := string(modes.EncodeCell(event, tc.x, 2)); got != tc.want {
+			t.Errorf("%+v %q: got %q, want %q", modes, tc.raw, got, tc.want)
+		}
+	}
+}
+
+func TestLegacyMouseDragReleasesAtLastEncodableCell(t *testing.T) {
+	var drag MouseCapture
+	pane := image.Rect(10, 5, 350, 245)
+	modes := MouseModes{Tracking: ansi.ModeMouseButtonEvent}
+	for _, tc := range []struct{ raw, want string }{
+		{"\x1b[<0;234;230M", ""}, // Outside the legacy range: no new press.
+		{"\x1b[<0;11;6M", "\x1b[M !!"},
+		{"\x1b[<32;340;240M", "\x1b[M@\xff\xff"},
+		{"\x1b[<0;340;240m", "\x1b[M#\xff\xff"},
+		{"\x1b[<32;12;6M", ""}, // The release ended capture.
+	} {
+		if got := string(drag.Input(modes, DecodeMouse([]byte(tc.raw)), pane)); got != tc.want {
+			t.Fatalf("%q: got %q, want %q", tc.raw, got, tc.want)
+		}
+	}
+}
 
 func TestUnicodeTitlesStayOffScreenAcrossWrites(t *testing.T) {
 	for _, title := range []string{"查看5090当前训练状态 | codex", "✳ Claude Code", "末尾 “quoted” 🚀"} {

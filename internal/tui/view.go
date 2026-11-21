@@ -3,7 +3,6 @@ package tui
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -14,40 +13,57 @@ import (
 	"github.com/raywcm/taskdock/internal/config"
 	"github.com/raywcm/taskdock/internal/ipc"
 	"github.com/raywcm/taskdock/internal/task"
+	"github.com/raywcm/taskdock/internal/terminal"
 )
 
-type palette struct{ accent, muted lipgloss.Style }
-
-func (m model) resolvedTheme() string {
-	theme := m.settings.Theme
-	if m.mode == "settings" {
-		theme = m.draft.Theme
-	}
-	if theme != "auto" {
-		return theme
-	}
-	if m.backgroundKnown {
-		if m.darkBackground {
-			return "dark"
-		}
-		return "light"
-	}
-	parts := strings.Split(os.Getenv("COLORFGBG"), ";")
-	if n, err := strconv.Atoi(parts[len(parts)-1]); err == nil {
-		if n == 7 || n == 15 {
-			return "light"
-		}
-		return "dark"
-	}
-	return "auto"
+type palette struct {
+	accent, muted lipgloss.Style
+	terminal      bool
+	colorMode     string
 }
+
+func (p palette) arrow(label string, selected bool) string {
+	if selected {
+		label = "› " + label
+		if p.terminal {
+			return p.accent.Bold(true).Render(label)
+		}
+		return label
+	}
+	return "  " + label
+}
+
+func (p palette) choice(label string, selected bool) string {
+	if p.terminal {
+		return p.arrow(label, selected)
+	}
+	if selected {
+		return lipgloss.NewStyle().Bold(true).Reverse(true).Render(label)
+	}
+	return label
+}
+
+func (p palette) listChoice(label string, selected bool) string {
+	if !p.terminal {
+		label = "  " + label
+	}
+	return p.choice(label, selected)
+}
+
 func (m model) palette() palette {
-	dark := m.resolvedTheme() != "light"
+	settings := m.settings
+	if m.mode == "settings" {
+		settings = m.draft
+	}
+	mode := terminal.ResolveColorMode(settings.ColorMode, m.background)
+	if settings.Theme == "terminal" {
+		return palette{accent: lipgloss.NewStyle().Foreground(terminal.TerminalAccent(mode)), muted: lipgloss.NewStyle().Faint(true), terminal: true, colorMode: mode}
+	}
 	accent, muted := "#70E1C8", "#909BAE"
-	if !dark {
+	if mode == "light" {
 		accent, muted = "#006C70", "#536175"
 	}
-	return palette{lipgloss.NewStyle().Foreground(lipgloss.Color(accent)), lipgloss.NewStyle().Foreground(lipgloss.Color(muted))}
+	return palette{accent: lipgloss.NewStyle().Foreground(lipgloss.Color(accent)), muted: lipgloss.NewStyle().Foreground(lipgloss.Color(muted)), colorMode: mode}
 }
 func (m model) header(width int) string {
 	p := m.palette()
@@ -59,45 +75,51 @@ func (m model) header(width int) string {
 	return brand + "  " + m.helpLine(width-brandWidth)
 }
 func (m model) tabs(width int) string {
-	p := m.palette()
+	t, p := m.locale().Text, m.palette()
 	labels := make([]string, tabCount)
-	gap := "   "
+	occupied := 2 * tabCount // an arrow or two padding cells per tab
 	for i, name := range tabNames {
-		labels[i] = m.locale().Text(name)
-		if i != tabSettings {
-			labels[i] = fmt.Sprintf("%s %d", labels[i], len(m.rows(i)))
-		}
+		labels[i] = t(name)
+		occupied += ansi.StringWidth(labels[i])
 	}
-	needed := func() int {
-		cells := (tabCount-1)*len(gap) + tabCount*2
-		for _, label := range labels {
-			cells += ansi.StringWidth(label)
+	if width < 3*tabCount+(tabCount-1) {
+		if p.terminal {
+			return ansi.Truncate(p.arrow(labels[m.tab], true), width, "")
 		}
-		return cells
+		return p.accent.Bold(true).Render(ansi.Truncate(labels[m.tab], width, "…"))
 	}
-	if needed() > width {
-		gap = " "
-		for i, name := range tabNames {
-			labels[i] = m.locale().Text(name)
-		}
-	}
-	if needed() > width {
-		labelWidth := max(1, (width-tabCount*2-(tabCount-1))/tabCount)
+	gap := " "
+	countSpace := width - occupied - 3*(tabCount-1) - 2
+	if occupied+(tabCount-1) > width {
+		labelWidth := (width - 2*tabCount - (tabCount - 1)) / tabCount
 		for i, label := range labels {
 			labels[i] = ansi.Truncate(label, labelWidth, "…")
 		}
-	}
-	tabs := make([]string, 0, tabCount)
-	for i, text := range labels {
-		style := lipgloss.NewStyle().Padding(0, 1)
-		if m.tab == i {
-			style = style.Bold(true).Reverse(true)
-		} else {
-			style = style.Inherit(p.muted)
+	} else if countSpace >= 2 {
+		// Tab counts need only one pass, regardless of how many rows fit on screen.
+		running := 0
+		for i := range m.tasks {
+			if active(m.tasks[i]) {
+				running++
+			}
 		}
-		tabs = append(tabs, style.Render(text))
+		live, history := strconv.Itoa(running), strconv.Itoa(len(m.tasks)-running)
+		if len(live)+len(history) <= countSpace {
+			gap = "   "
+			labels[tabRunning] += " " + live
+			labels[tabStop] += " " + history
+		}
 	}
-	return ansi.Truncate(strings.Join(tabs, gap), width, "…")
+	for i, text := range labels {
+		if !p.terminal {
+			text = " " + text + " "
+		}
+		if m.tab != i {
+			text = p.muted.Render(text)
+		}
+		labels[i] = p.choice(text, m.tab == i)
+	}
+	return strings.Join(labels, gap)
 }
 func (m model) rowText(r task.Record, c columns) string {
 	marker := "○"
@@ -130,13 +152,16 @@ func (m model) columns(width int) columns {
 	}
 	return c
 }
-func (m model) card(r task.Record, width int, c columns, selected bool) string {
+func (p palette) card(line string, width int, selected bool) string {
+	if p.terminal {
+		return fit(p.arrow(line, selected), width)
+	}
 	style := lipgloss.NewStyle().Width(max(1, width)).Padding(0, 2)
 	if selected {
 		// Keep the previous horizontal layout, but use a one-line side frame.
-		style = style.Padding(0, 1).Border(lipgloss.NormalBorder()).BorderTop(false).BorderBottom(false).Reverse(true).Bold(true).BorderForeground(m.palette().accent.GetForeground())
+		style = style.Padding(0, 1).Border(lipgloss.NormalBorder()).BorderTop(false).BorderBottom(false).Reverse(true).Bold(true).BorderForeground(p.accent.GetForeground())
 	}
-	return style.Render(m.rowText(r, c))
+	return style.Render(line)
 }
 func (m model) helpLine(width int) string {
 	t, p := m.locale().Text, m.palette()
@@ -270,7 +295,11 @@ func (m model) settingsView(width int) []string {
 	if m.draft.ShowResources {
 		on = t("on")
 	}
-	options := [][2]string{{t("language"), language}, {t("theme"), t(m.draft.Theme)}, {t("interval"), m.retentionLabel(int64(m.draft.RefreshSeconds))}, {t("resources"), on}, {t("default_tab"), t(m.draft.DefaultTab)}, {t("auto_delete"), m.retentionLabel(m.draft.HistoryRetentionSeconds)}}
+	options := [settingsCount][2]string{
+		{t("language"), language}, {t("theme"), t(m.draft.Theme)}, {t("color_mode"), t(m.draft.ColorMode)},
+		{t("interval"), m.retentionLabel(int64(m.draft.RefreshSeconds))}, {t("resources"), on},
+		{t("default_tab"), t(m.draft.DefaultTab)}, {t("auto_delete"), m.retentionLabel(m.draft.HistoryRetentionSeconds)},
+	}
 	version := t("version") + "  v" + strings.TrimPrefix(m.version, "v")
 	lines := []string{m.header(width), "", m.tabs(width), p.muted.Render(strings.Repeat("─", width)), p.muted.Render(version), ""}
 	labelWidth := min(22, max(10, width/2))
@@ -282,11 +311,8 @@ func (m model) settingsView(width int) []string {
 	}
 	for i := start; i < min(len(options), start+visible); i++ {
 		option := options[i]
-		line := "  " + fit(option[0], labelWidth) + " " + fit("‹ "+option[1]+" ›", valueWidth)
-		if m.settingsEditing && i == m.settingRow {
-			line = lipgloss.NewStyle().Bold(true).Reverse(true).Width(width).Render(line)
-		}
-		lines = append(lines, line)
+		line := fit(option[0], labelWidth) + " " + fit("‹ "+option[1]+" ›", valueWidth)
+		lines = append(lines, p.listChoice(fit(line, width-2), m.settingsEditing && i == m.settingRow))
 	}
 	lines = append(lines, m.status(width))
 	return lines
@@ -337,11 +363,8 @@ func (m model) connectionView(width int) []string {
 		return append(lines, t("takeover_prompt"), t("takeover_hint"))
 	}
 	for i, mode := range connectionModes {
-		line := "  " + t("mode_"+mode) + " · " + t("desc_"+mode)
-		if i == m.connectChoice {
-			line = lipgloss.NewStyle().Bold(true).Reverse(true).Render(line)
-		}
-		lines = append(lines, line)
+		line := t("mode_"+mode) + " · " + t("desc_"+mode)
+		lines = append(lines, p.listChoice(line, i == m.connectChoice))
 	}
 	return append(lines, "", m.status(width))
 }
@@ -360,6 +383,8 @@ func (m model) View() tea.View {
 	p := m.palette()
 	var lines []string
 	showMonitor := false
+	app := m.appArea()
+	frame := &m.monitorFrame
 	if m.tooSmall() {
 		lines = []string{m.header(width), t("small_window"), "q " + t("quit")}
 	} else if m.mode == "tmux" || m.mode == "tmux-view" {
@@ -374,7 +399,7 @@ func (m model) View() tea.View {
 		lines = m.connectionView(width)
 	} else if m.monitoring && m.tab == tabRunning {
 		lines = m.monitorView(width)
-		showMonitor = m.width >= 50 && m.height >= 12
+		showMonitor = !app.Empty()
 	} else if m.tab == tabSettings {
 		lines = m.settingsView(width)
 	} else {
@@ -407,9 +432,8 @@ func (m model) View() tea.View {
 			drawn = 1
 		} else {
 			for i := start; i < min(len(rows), start+visible); i++ {
-				card := strings.Split(m.card(rows[i], width, c, i == cursor), "\n")
-				lines = append(lines, card...)
-				drawn += len(card)
+				lines = append(lines, p.card(m.rowText(rows[i], c), width, i == cursor))
+				drawn++
 			}
 		}
 		for drawn < bodyHeight {
@@ -422,32 +446,29 @@ func (m model) View() tea.View {
 	if len(lines) > m.height {
 		lines = lines[:m.height]
 	}
+	padding := strings.Repeat(" ", min(2, m.width-1))
 	for i, line := range lines {
-		line = strings.Repeat(" ", min(2, m.width-1)) + ansi.Truncate(line, max(1, m.width-4), "…")
-		theme := m.resolvedTheme()
-		if theme == "light" || theme == "dark" {
-			base := "\x1b[0m\x1b[38;2;229;237;247m\x1b[48;2;20;26;38m"
-			if theme == "light" {
-				base = "\x1b[0m\x1b[38;2;31;42;59m\x1b[48;2;246;248;252m"
-			}
-			paint := func(text string) string {
-				return base + strings.NewReplacer("\x1b[m", base, "\x1b[0m", base).Replace(text) + "\x1b[m"
-			}
-			left, right, height := m.monitorGeometry()
-			if showMonitor && m.monitorFrame.Ready && m.monitorFrame.Err == nil && i >= 5 && i < 5+height {
-				// The manager theme belongs to the sidebar and gutters. The
-				// preview's default colors and inverse highlights belong to the
-				// application, just as they do in a native attachment.
-				x := left + 5
-				label := fit(ansi.Cut(line, 0, x), x)
-				preview := fit(ansi.Cut(line, x, x+right), right)
-				gutter := strings.Repeat(" ", max(0, m.width-x-right))
-				line = paint(label) + "\x1b[0m" + preview + "\x1b[0m" + paint(gutter)
+		lines[i] = padding + ansi.Truncate(line, max(1, m.width-4), "…")
+	}
+	appReady := showMonitor && frame.Ready && frame.Err == nil
+	if !p.terminal && p.colorMode != "auto" {
+		base := "\x1b[0m\x1b[38;2;229;237;247m\x1b[48;2;20;26;38m"
+		if p.colorMode == "light" {
+			base = "\x1b[0m\x1b[38;2;31;42;59m\x1b[48;2;246;248;252m"
+		}
+		reset := strings.NewReplacer("\x1b[m", base, "\x1b[0m", base)
+		paint := func(text string) string { return base + reset.Replace(text) + "\x1b[m" }
+		for i, line := range lines {
+			if appReady && i >= app.Min.Y && i < app.Max.Y {
+				// Only the surrounding manager UI owns the theme background.
+				label := fit(ansi.Cut(line, 0, app.Min.X), app.Min.X)
+				preview := fit(ansi.Cut(line, app.Min.X, app.Max.X), app.Dx())
+				gutter := strings.Repeat(" ", max(0, m.width-app.Max.X))
+				lines[i] = paint(label) + "\x1b[0m" + preview + "\x1b[0m" + paint(gutter)
 			} else {
-				line = paint(fit(line, m.width))
+				lines[i] = paint(fit(line, m.width))
 			}
 		}
-		lines[i] = line
 	}
 	content := strings.Join(lines, "\n")
 	if m.hasDialog() && !m.tooSmall() {
@@ -455,13 +476,18 @@ func (m model) View() tea.View {
 	}
 	view := tea.NewView(content)
 	view.AltScreen = true
-	if showMonitor && m.mode == "" && m.monitorFrame.Scrollable && m.monitorFrame.Err == nil {
+	if scroll, _ := m.scrollableText(); scroll != nil {
 		view.MouseMode = tea.MouseModeCellMotion
 	}
-	if m.monitoring && m.mode == "" && m.monitorFrame.Ready && m.monitorFrame.Err == nil && !m.monitorFrame.CursorHidden {
-		left, right, height := m.monitorGeometry()
-		if m.monitorFrame.CursorX < right && m.monitorFrame.CursorY < height {
-			view.Cursor = tea.NewCursor(left+5+max(0, m.monitorFrame.CursorX), 5+max(0, m.monitorFrame.CursorY))
+	if appReady && !frame.Ended && m.mode == "" {
+		tracking := frame.Mouse.CellTracking()
+		if tracking == ansi.ModeMouseAnyEvent {
+			view.MouseMode = tea.MouseModeAllMotion
+		} else if tracking != 0 || frame.Scrollable {
+			view.MouseMode = tea.MouseModeCellMotion
+		}
+		if !frame.CursorHidden && frame.CursorX >= 0 && frame.CursorX < app.Dx() && frame.CursorY >= 0 && frame.CursorY < app.Dy() {
+			view.Cursor = tea.NewCursor(app.Min.X+frame.CursorX, app.Min.Y+frame.CursorY)
 		}
 	}
 	return view

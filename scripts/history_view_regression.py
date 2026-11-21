@@ -37,6 +37,8 @@ def main():
                 os.write(fd,b'\r')
                 text=wait_view(fd,terminal,lambda text:title in text and 'HISTORY-099' in text)
                 assert 'HISTORY-SECRET' not in text and b'\x1b]52;' not in raw
+                os.write(fd,b'\x1b[<64;10;6M')
+                wait_view(fd,terminal,lambda text:'HISTORY-096' in text and 'HISTORY-099' not in text)
                 os.write(fd,b'\x1b[H')
                 wait_view(fd,terminal,lambda text:'HISTORY-000' in text and 'HISTORY-099' not in text)
                 os.write(fd,b'\x1b[6~')

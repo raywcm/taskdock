@@ -20,14 +20,25 @@ import (
 // Ensure starts at most one effective worker per state directory. A racing
 // startup is harmless: the worker itself owns the exclusive history lock.
 func Ensure(repository *store.JSON) error {
+	pending, err := pendingWork(context.Background(), repository)
+	if pending {
+		return errors.Join(err, StartWorker(repository))
+	}
+	return err
+}
+
+func pendingWork(ctx context.Context, repository *store.JSON) (bool, error) {
+	records, err := repository.List(ctx)
+	if err != nil || len(records) == 0 {
+		return false, err
+	}
 	retention, err := repository.HistoryRetention()
-	if err != nil {
-		return err
-	}
-	records, err := repository.List(context.Background())
-	if err != nil || !needsWorker(records, retention) {
-		return err
-	}
+	return err != nil || needsWorker(records, retention), err
+}
+
+// StartWorker also works before the first record exists. A creator holding
+// the catalog lock can start the worker before publishing a task.
+func StartWorker(repository *store.JSON) error {
 	release, err := repository.HistoryLock()
 	if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
 		return nil
@@ -62,7 +73,7 @@ func Ensure(repository *store.JSON) error {
 
 func needsWorker(records []task.Record, retention time.Duration) bool {
 	for _, r := range records {
-		if retention > 0 || (r.Runtime != nil && task.CanTransition(r.Runtime.State, task.Failed)) {
+		if retention > 0 || r.Runtime == nil || task.CanTransition(r.Runtime.State, task.Failed) {
 			return true
 		}
 	}
@@ -84,10 +95,19 @@ func Run(ctx context.Context, state string) error {
 	}
 	release = sync.OnceFunc(release)
 	defer release()
+	var lastWarning string
 	for {
 		pending, err := Sweep(ctx, repository, time.Now())
 		if err != nil {
-			return err
+			if !pending {
+				return err
+			}
+			if warning := err.Error(); warning != lastWarning {
+				fmt.Fprintln(os.Stderr, warning)
+				lastWarning = warning
+			}
+		} else {
+			lastWarning = ""
 		}
 		if !pending {
 			// Coordinate the final work check with task creation and setting
@@ -97,21 +117,13 @@ func Run(ctx context.Context, state string) error {
 			if err != nil {
 				return err
 			}
-			retention, readErr := repository.HistoryRetention()
-			records, listErr := repository.List(ctx)
-			done := readErr == nil && listErr == nil && !needsWorker(records, retention)
-			if done {
+			pending, err := pendingWork(ctx, repository)
+			if !pending {
 				release()
 			}
 			unlock()
-			if readErr != nil {
-				return readErr
-			}
-			if listErr != nil {
-				return listErr
-			}
-			if done {
-				return nil
+			if !pending {
+				return err
 			}
 		}
 		timer := time.NewTimer(5 * time.Second)
@@ -125,77 +137,83 @@ func Run(ctx context.Context, state string) error {
 }
 
 // Sweep reconciles orphaned sessions and expires retained history under the catalog lock.
+// A pending result with an error identifies individual sessions to retry on the next pass.
 func Sweep(ctx context.Context, repository *store.JSON, now time.Time) (bool, error) {
 	unlock, err := repository.Lock(ctx)
 	if err != nil {
 		return false, err
 	}
 	defer unlock()
-	retention, err := repository.HistoryRetention()
-	if err != nil {
-		return false, err
-	}
 	records, err := repository.List(ctx)
-	if err != nil {
+	if err != nil || len(records) == 0 {
 		return false, err
 	}
-	remaining := len(records)
+	// Keep recovering dead sessions. Only expiry depends on a readable policy.
+	retention, policyErr := repository.HistoryRetention()
+	pending := policyErr != nil
+	var warnings []error
+	if policyErr != nil {
+		warnings = append(warnings, policyErr)
+	}
 	for _, record := range records {
 		if err := ctx.Err(); err != nil {
-			return true, err
+			return false, err
 		}
-		if record.Runtime != nil && task.CanTransition(record.Runtime.State, task.Failed) {
-			record, err = repository.RetireOrphan(ctx, record.Spec.ID, now)
-			if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
-				continue
-			}
-			if err != nil {
-				return true, fmt.Errorf("recover session %s: %w", record.Spec.ID, err)
-			}
-		}
-		if retention == 0 {
-			remaining--
-			continue
-		}
-		ended := record.Spec.CreatedAt
-		if r := record.Runtime; r != nil {
-			ended = r.UpdatedAt
-			if r.FinishedAt != nil && !r.FinishedAt.IsZero() {
-				ended = *r.FinishedAt
-			}
-		}
-		if ended.IsZero() || now.Before(ended.Add(retention)) {
-			continue
-		}
-		release, err := repository.BrokerLock(record.Spec.ID)
-		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
-			continue
-		}
+		keep, err := sweepSession(ctx, repository, record, now, retention)
 		if err != nil {
-			return true, err
+			warnings = append(warnings, fmt.Errorf("session %s: %w", record.Spec.ID, err))
 		}
-		err = func() error {
-			defer release()
-			socket, err := ipc.SocketPath(repository.Root(), record.Spec.ID)
-			if err != nil {
-				return err
-			}
-			if info, err := os.Lstat(socket); err == nil {
-				if info.Mode()&os.ModeSocket == 0 {
-					return errors.New("refusing to remove non-socket history path")
-				}
-				if err := os.Remove(socket); err != nil {
-					return err
-				}
-			} else if !errors.Is(err, os.ErrNotExist) {
-				return err
-			}
-			return repository.Remove(ctx, record.Spec.ID)
-		}()
-		if err != nil {
-			return true, fmt.Errorf("clean stopped session %s: %w", record.Spec.ID, err)
-		}
-		remaining--
+		pending = pending || keep
 	}
-	return remaining > 0, nil
+	return pending, errors.Join(warnings...)
+}
+
+func sweepSession(ctx context.Context, repository *store.JSON, record task.Record, now time.Time, retention time.Duration) (bool, error) {
+	if record.AwaitingBroker(now) {
+		return true, nil
+	}
+	if record.Runtime == nil || task.CanTransition(record.Runtime.State, task.Failed) {
+		latest, err := repository.RetireOrphan(ctx, record.Spec.ID, now)
+		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+			return true, nil
+		}
+		if err != nil {
+			return true, err
+		}
+		record = latest
+	}
+	if retention == 0 {
+		return false, nil
+	}
+	ended := record.Runtime.UpdatedAt
+	if finished := record.Runtime.FinishedAt; finished != nil && !finished.IsZero() {
+		ended = *finished
+	}
+	if now.Before(ended.Add(retention)) {
+		return true, nil
+	}
+	release, err := repository.BrokerLock(record.Spec.ID)
+	if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+		return true, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	defer release()
+	socket, err := ipc.SocketPath(repository.Root(), record.Spec.ID)
+	if err != nil {
+		return true, err
+	}
+	if info, err := os.Lstat(socket); err == nil {
+		if info.Mode()&os.ModeSocket == 0 {
+			return true, errors.New("refusing to remove non-socket history path")
+		}
+		if err := os.Remove(socket); err != nil {
+			return true, err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return true, err
+	}
+	err = repository.Remove(ctx, record.Spec.ID)
+	return err != nil, err
 }

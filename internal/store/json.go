@@ -65,8 +65,7 @@ func (s *JSON) taskDir(id task.ID) (string, error) {
 }
 
 // Create reserves an immutable ID. Name uniqueness belongs to the service
-// catalog transaction, not this storage primitive. Incomplete directories without
-// spec.json are ignored by List and reserved for explicit recovery/cleanup.
+// catalog transaction. List skips incomplete directories left by an interrupted create.
 func (s *JSON) Create(ctx context.Context, spec task.Spec) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -81,7 +80,13 @@ func (s *JSON) Create(ctx context.Context, spec task.Spec) error {
 	if err := os.Mkdir(dir, 0700); err != nil {
 		return err
 	}
-	return writeJSON(filepath.Join(dir, "spec.json"), spec)
+	if err := writeJSON(filepath.Join(dir, "spec.json"), spec); err != nil {
+		// Remove only an empty reservation. A directory-sync error can occur
+		// after spec.json was published, in which case the record must stay.
+		_ = os.Remove(dir)
+		return err
+	}
+	return nil
 }
 
 func (s *JSON) Load(ctx context.Context, id task.ID) (task.Record, error) {
@@ -127,8 +132,19 @@ func (s *JSON) List(ctx context.Context) ([]task.Record, error) {
 	return records, err
 }
 
-// ListWithWarnings reports unreadable task records separately from catalog errors.
+// ListWithWarnings keeps readable records available when saved ordering is unusable.
 func (s *JSON) ListWithWarnings(ctx context.Context) ([]task.Record, []error, error) {
+	records, warnings, err := s.listByCreation(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := s.applyOrder(records); err != nil {
+		warnings = append(warnings, fmt.Errorf("using creation order because order.json could not be applied: %w", err))
+	}
+	return records, warnings, nil
+}
+
+func (s *JSON) listByCreation(ctx context.Context) ([]task.Record, []error, error) {
 	entries, err := os.ReadDir(filepath.Join(s.root, "tasks"))
 	if err != nil {
 		return nil, nil, err
@@ -168,7 +184,7 @@ func (s *JSON) ListWithWarnings(ctx context.Context) ([]task.Record, []error, er
 		}
 		return records[i].Spec.CreatedAt.Before(records[j].Spec.CreatedAt)
 	})
-	return records, warnings, s.applyOrder(records)
+	return records, warnings, nil
 }
 
 // SaveRuntime requires exclusive ownership of the task's broker lock.

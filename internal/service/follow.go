@@ -7,8 +7,6 @@ import (
 	"os"
 	"time"
 	"unicode/utf8"
-
-	"github.com/raywcm/taskdock/internal/task"
 )
 
 func (m *Manager) FollowLogs(ctx context.Context, ref string, raw bool, tail int, w io.Writer) error {
@@ -132,7 +130,7 @@ func (m *Manager) FollowLogs(ctx context.Context, ref string, raw bool, tail int
 			return err
 		}
 		observed := m.Observe(ctx, latest)
-		if observed.Runtime != nil && (observed.Runtime.State == task.Exited || observed.Runtime.State == task.Failed) {
+		if observed.Runtime != nil && observed.Runtime.State.Finished() {
 			finished = true
 			continue
 		}

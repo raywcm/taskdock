@@ -194,6 +194,37 @@ class Harness:
             self.cli('delete', task, check=False)
 
 
+def test_settings_and_session_controls(h):
+    h.cli('settings', 'reset')
+    changes = [('language','fr'), ('theme','terminal'), ('color-mode','light'), ('refresh','5'),
+               ('resources','off'), ('default-tab','stop'), ('history-retention','off')]
+    with (h.state/'catalog.lock').open('r+') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        writers = [subprocess.Popen(h.base + ['settings','set',key,value], env=ENV)
+                   for key, value in changes]
+    assert all(p.wait(timeout=5) == 0 for p in writers)
+    saved = json.loads(h.cli('settings','--json').stdout)
+    assert saved == dict(schema_version=1, language='fr', theme='terminal', color_mode='light', refresh_seconds=5,
+                         show_resources=False, default_tab='stop', history_retention_seconds=0), saved
+    task = h.create('settings-recovery', '/bin/sh', '-c', 'echo retained; read hold')
+    settings = h.state/'settings.json'
+    try:
+        settings.write_bytes(b'{"theme":')
+        listing = h.cli('ls','--json')
+        assert json.loads(listing.stdout)[0]['spec']['id'] == task and b'settings.json' in listing.stderr
+        assert h.show(task)['health'] == 'online'
+        until(lambda: b'retained' in h.cli('logs',task).stdout)
+        h.cli('stop',task)
+        assert h.show(task)['health'] == 'finished'
+        assert settings.read_bytes() == b'{"theme":'
+    finally:
+        h.cli('settings','reset')
+    defaults = json.loads(h.cli('settings','--json').stdout)
+    assert (defaults['theme'], defaults['color_mode']) == ('classic', 'auto')
+    h.cli('delete', task)
+    print('PASS concurrent settings updates, session control with unreadable preferences, explicit reset', flush=True)
+
+
 def test_lifecycle(h):
     task = h.create('中文任务', '/bin/sh', '-c', 'printf "ready\\n"; read value')
     assert h.show(task)['health'] == 'online'
@@ -527,7 +558,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='tdock-integration-') as root:
         harness=Harness(root)
         try:
-            for test in (test_lifecycle,test_foreground_startup,test_attach,test_protocol_and_transparency,
+            for test in (test_settings_and_session_controls,test_lifecycle,test_foreground_startup,test_attach,test_protocol_and_transparency,
                          test_resize_interrupt_and_noescape,test_jobs_crash_and_concurrency,test_stop_grace,
                          test_logs_and_upgrade,test_slow_and_malformed_clients,test_tui,test_bash_and_vim):
                 test(harness)

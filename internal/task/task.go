@@ -98,6 +98,8 @@ const (
 	Failed   State = "failed"
 )
 
+func (s State) Finished() bool { return s == Exited || s == Failed }
+
 // CanTransition does not allow restarting a completed ID. A restart will create a new task.
 func CanTransition(from, to State) bool {
 	switch from {
@@ -113,6 +115,9 @@ func CanTransition(from, to State) bool {
 }
 
 const DefaultStopGrace = 5 * time.Second
+
+// StartupTimeout is how long the creator waits for broker readiness.
+const StartupTimeout = 5 * time.Second
 
 // Runtime is written under the broker lock. PIDs are diagnostic, not identity.
 type Runtime struct {
@@ -164,6 +169,12 @@ type Record struct {
 	Runtime   *Runtime   `json:"runtime,omitempty"`
 	Health    string     `json:"health,omitempty"`
 	Resources *Resources `json:"resources,omitempty"`
+}
+
+// AwaitingBroker gives a newly spawned broker time to take its lock if the
+// creator stopped waiting before the broker got scheduled.
+func (r Record) AwaitingBroker(now time.Time) bool {
+	return r.Runtime == nil && now.Before(r.Spec.CreatedAt.Add(StartupTimeout))
 }
 
 type Resources struct {

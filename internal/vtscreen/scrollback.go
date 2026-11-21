@@ -1,11 +1,9 @@
 package vtscreen
 
 import (
-	"bytes"
 	"slices"
 
 	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 )
 
@@ -51,52 +49,4 @@ func (v *Viewport) Rows(e *vt.Emulator) []string {
 		rows[row] = renderRow(min(e.Width(), len(line)), func(x int) *uv.Cell { return &line[x] })
 	}
 	return rows
-}
-
-// MouseModes tracks the application's requested reporting and encoding.
-// Each group has mutually exclusive modes on the host terminal.
-type MouseModes struct {
-	Tracking ansi.DECMode
-	Encoding ansi.DECMode
-}
-
-func (m *MouseModes) Set(mode ansi.Mode, enabled bool) bool {
-	var target *ansi.DECMode
-	switch mode {
-	case ansi.ModeMouseX10, ansi.ModeMouseNormal, ansi.ModeMouseHighlight, ansi.ModeMouseButtonEvent, ansi.ModeMouseAnyEvent:
-		target = &m.Tracking
-	case ansi.ModeMouseExtUtf8, ansi.ModeMouseExtSgr, ansi.ModeMouseExtUrxvt, ansi.ModeMouseExtSgrPixel:
-		target = &m.Encoding
-	default:
-		return false
-	}
-	if enabled {
-		*target = mode.(ansi.DECMode)
-	} else if *target == mode {
-		*target = 0
-	}
-	return true
-}
-
-// ScrollMouse handles complete SGR mouse reports. Other inputs bypass it.
-func ScrollMouse(raw []byte) (x, y, lines int, ok bool) {
-	if !bytes.HasPrefix(raw, []byte("\x1b[<")) {
-		return
-	}
-	var decoder uv.EventDecoder
-	n, event := decoder.Decode(raw)
-	mouse, ok := event.(uv.MouseEvent)
-	if !ok || n != len(raw) {
-		return 0, 0, 0, false
-	}
-	m := mouse.Mouse()
-	if _, wheel := event.(uv.MouseWheelEvent); wheel {
-		switch m.Button {
-		case uv.MouseWheelUp:
-			lines = 3
-		case uv.MouseWheelDown:
-			lines = -3
-		}
-	}
-	return m.X, m.Y, lines, true
 }

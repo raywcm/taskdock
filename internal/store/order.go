@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -59,9 +60,13 @@ func (s *JSON) Move(ctx context.Context, id task.ID, direction int) error {
 		return err
 	}
 	defer release()
-	records, err := s.List(ctx)
+	records, _, err := s.listByCreation(ctx)
 	if err != nil {
 		return err
+	}
+	// Reordering writes the file, so preserve unreadable or newer formats.
+	if err := s.applyOrder(records); err != nil {
+		return fmt.Errorf("cannot update order.json: %w", err)
 	}
 	index := -1
 	for i, r := range records {

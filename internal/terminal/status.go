@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
 	"io"
 	"os"
 	"strings"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
+	"github.com/raywcm/taskdock/internal/config"
 	"github.com/raywcm/taskdock/internal/protocol"
 	"github.com/raywcm/taskdock/internal/task"
 	"github.com/raywcm/taskdock/internal/vtscreen"
@@ -24,26 +27,31 @@ import (
 // saved cursor belong to the emulator, independently of the physical status row.
 // --no-status keeps the native byte-forwarding path available.
 type statusScreen struct {
-	mu          sync.Mutex
-	e           *vt.Emulator
-	size        task.Size
-	name        string
-	id          string
-	mode        string
-	memory      string
-	previous    []string
-	controls    strings.Builder
-	viewport    vtscreen.Viewport
-	appMouse    vtscreen.MouseModes
-	hostMouse   vtscreen.MouseModes
-	scrollMouse bool
-	noScroll    bool
-	live        bool
-	relay       atomic.Bool
-	follow      atomic.Bool
-	dirty       bool
-	repliesDone chan struct{}
-	replayed    chan struct{}
+	mu            sync.Mutex
+	e             *vt.Emulator
+	size          task.Size
+	pixels        image.Point
+	name          string
+	id            string
+	mode          string
+	rowStyle      string
+	memory        string
+	previous      []string
+	controls      strings.Builder
+	viewport      vtscreen.Viewport
+	appMouse      vtscreen.MouseModes
+	hostMouse     vtscreen.MouseModes
+	capture       vtscreen.MouseCapture
+	scrollMouse   bool
+	mouseReported bool
+	rawInput      bool
+	readOnly      bool
+	live          bool
+	relay         atomic.Bool
+	follow        atomic.Bool
+	dirty         bool
+	repliesDone   chan struct{}
+	replayed      chan struct{}
 }
 
 const replayBarrier = "\x00TDOCK-REPLAY-END\x00"
@@ -53,6 +61,11 @@ func sessionSize(size task.Size, status bool) task.Size {
 		size.Rows--
 	}
 	return size
+}
+
+func (s *statusScreen) visibleArea() image.Rectangle {
+	app := sessionSize(s.size, true)
+	return image.Rect(0, 0, min(int(app.Cols), s.e.Width()), min(int(app.Rows), s.e.Height()))
 }
 
 func newStatusScreen(size task.Size, spec task.Spec, send func(protocol.Frame) error) *statusScreen {
@@ -85,6 +98,7 @@ func newStatusScreen(size task.Size, spec task.Spec, send func(protocol.Frame) e
 	})
 	s.e.RegisterEscHandler('c', func() bool {
 		s.appMouse = vtscreen.MouseModes{}
+		s.capture.Reset()
 		s.viewport.Reset()
 		return false
 	})
@@ -153,7 +167,11 @@ func (s *statusScreen) source(size task.Size) {
 }
 
 func (s *statusScreen) inputMode(mode ansi.Mode, enabled bool) {
+	before := s.appMouse
 	if s.appMouse.Set(mode, enabled) {
+		if before != s.appMouse {
+			s.capture.Reset()
+		}
 		return
 	}
 	// Only physical input encoding follows the application. Screen modes stay
@@ -170,9 +188,14 @@ func (s *statusScreen) inputMode(mode ansi.Mode, enabled bool) {
 
 func (s *statusScreen) updateMouse(out *strings.Builder) {
 	next := s.appMouse
-	s.scrollMouse = !s.noScroll && next.Tracking == 0 && !s.e.IsAltScreen() && s.e.ScrollbackLen() > 0
+	s.scrollMouse = !s.rawInput && next.Tracking == 0 && !s.e.IsAltScreen() && s.e.ScrollbackLen() > 0
 	if s.scrollMouse {
 		next = vtscreen.MouseModes{Tracking: ansi.ModeMouseNormal, Encoding: ansi.ModeMouseExtSgr}
+	} else if s.readOnly {
+		next = vtscreen.MouseModes{}
+	} else if !s.rawInput && next.CellTracking() != 0 {
+		// Use cell coordinates on the host, then encode for the task after hit testing.
+		next.Encoding = ansi.ModeMouseExtSgr
 	}
 	for _, change := range [][2]ansi.DECMode{{s.hostMouse.Tracking, next.Tracking}, {s.hostMouse.Encoding, next.Encoding}} {
 		if before, after := change[0], change[1]; before != after && before != 0 {
@@ -185,25 +208,50 @@ func (s *statusScreen) updateMouse(out *strings.Builder) {
 		}
 	}
 	s.hostMouse = next
+	if next.Tracking != 0 {
+		s.mouseReported = true
+	}
 }
 
 func (s *statusScreen) mouseInput(raw []byte) []byte {
-	x, y, lines, ok := vtscreen.ScrollMouse(raw)
-	if !ok {
+	event := vtscreen.DecodeMouse(raw)
+	if event == nil {
 		return raw
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.applyFollow()
-	if !s.scrollMouse || s.appMouse.Tracking != 0 {
+	area := s.visibleArea()
+	modes := s.appMouse
+	switch {
+	case modes.Tracking == 0:
+		mouse := event.Mouse()
+		if s.scrollMouse && image.Pt(mouse.X, mouse.Y).In(area) {
+			if lines := vtscreen.WheelLines(mouse.Button); lines != 0 {
+				s.viewport.Scroll(s.e, lines)
+				s.dirty = true
+			}
+		}
+		// Keep delayed reports out of the shell after an application relinquishes
+		// the mouse. A frontend that never enabled tracking preserves opaque input.
+		if s.mouseReported {
+			return nil
+		}
 		return raw
+	case s.readOnly:
+		return nil
+	case modes.Tracking == ansi.ModeMouseHighlight:
+		return raw
+	case modes.Encoding == ansi.ModeMouseExtSgrPixel:
+		if s.pixels.X == 0 || s.pixels.Y == 0 {
+			return raw
+		}
+		area.Max.X = area.Max.X * s.pixels.X / int(s.size.Cols)
+		area.Max.Y = area.Max.Y * s.pixels.Y / int(s.size.Rows)
+		// Pixel reports use the SGR syntax with pixel coordinates.
+		modes.Encoding = ansi.ModeMouseExtSgr
 	}
-	app := sessionSize(s.size, true)
-	if lines != 0 && x >= 0 && x < int(app.Cols) && y >= 0 && y < int(app.Rows) {
-		s.viewport.Scroll(s.e, lines)
-		s.dirty = true
-	}
-	return nil
+	return s.capture.Input(modes, event, area)
 }
 
 func (s *statusScreen) followLive() {
@@ -242,9 +290,10 @@ func (s *statusScreen) feed(data []byte) (err error) {
 	return err
 }
 
-func (s *statusScreen) resize(size task.Size, owner bool) {
+func (s *statusScreen) resize(size task.Size, pixels image.Point, owner bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.pixels = pixels
 	if size == s.size {
 		return
 	}
@@ -288,6 +337,24 @@ func (s *statusScreen) label() string {
 	return label
 }
 
+func (s *statusScreen) setAppearance(settings config.Settings, background color.Color) {
+	style := ansi.NewStyle().Reset().Bold()
+	if os.Getenv("NO_COLOR") == "" {
+		mode := ResolveColorMode(settings.ColorMode, background)
+		switch {
+		case settings.Theme == "terminal":
+			style = style.ForegroundColor(TerminalAccent(mode))
+		case mode == "light":
+			style = style.ForegroundColor(ansi.Blue).BackgroundColor(ansi.White)
+		default:
+			style = style.ForegroundColor(ansi.White).BackgroundColor(ansi.Blue)
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rowStyle, s.dirty = style.String(), true
+}
+
 func statusLine(name, memory string, width int) string {
 	name = strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {
@@ -320,7 +387,7 @@ func (s *statusScreen) draw(ctx context.Context, fd int) error {
 		rows = append(rows, "")
 	}
 	if s.size.Rows > 1 {
-		rows = append(rows, "\x1b[0;1;37;44m"+statusLine(s.label(), s.memory, int(s.size.Cols))+"\x1b[0m")
+		rows = append(rows, s.rowStyle+statusLine(s.label(), s.memory, int(s.size.Cols))+"\x1b[0m")
 	}
 	var out strings.Builder
 	out.WriteString(s.controls.String())
@@ -343,7 +410,7 @@ func (s *statusScreen) draw(ctx context.Context, fd int) error {
 		shape++
 	}
 	fmt.Fprintf(&out, "\x1b[%d q", shape)
-	if !s.e.CursorHidden() && !s.viewport.Scrolled() {
+	if !s.e.CursorHidden() && !s.viewport.Scrolled() && position.In(s.visibleArea()) {
 		out.WriteString("\x1b[?25h")
 	}
 	if err := writeTTY(ctx, fd, []byte(out.String())); err != nil {

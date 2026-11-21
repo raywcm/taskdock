@@ -3,6 +3,7 @@ package monitor
 import (
 	"context"
 	"errors"
+	"image"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +14,23 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/raywcm/taskdock/internal/store"
 	"github.com/raywcm/taskdock/internal/task"
+	"github.com/raywcm/taskdock/internal/vtscreen"
 )
+
+func TestMouseInputStaysBoundToTheVisibleTask(t *testing.T) {
+	area := image.Rect(10, 2, 90, 22)
+	s := Session{frame: Frame{Ready: true, Width: 40, Height: 10, Mouse: vtscreen.MouseModes{Tracking: 1002, Encoding: 1006}}}
+	for _, pair := range [][2]string{
+		{"\x1b[<0;2;2M", ""}, {"\x1b[<32;11;3M", ""}, {"\x1b[<0;11;3m", ""},
+		{"\x1b[<0;11;3M", "\x1b[<0;1;1M"}, {"\x1b[<32;90;22M", "\x1b[<32;40;10M"},
+		{"\x1b[<0;90;22m", "\x1b[<0;40;10m"}, {"\x1b[<65;51;3M", ""},
+		{"\x1b[<0;11;3M", "\x1b[<0;1;1M"}, {"\x1b[<0;2;2M", ""}, {"\x1b[<0;11;3m", ""},
+	} {
+		if got := string(s.MouseInput(vtscreen.DecodeMouse([]byte(pair[0])), area)); got != pair[1] {
+			t.Fatalf("%q: got %q, want %q", pair[0], got, pair[1])
+		}
+	}
+}
 
 func TestOffscreenEmulationStylesCJKAndAlternateScreen(t *testing.T) {
 	e := newScreen(40, 10)

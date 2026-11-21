@@ -43,19 +43,20 @@ def main():
      reference=Terminal();reference.feed(b'\x1b[0m'+style+marker.encode())
      expected=marker_style(reference,marker)
      # Deliberately use opposite manager colors. App colors must stay its own.
-     for theme in ['light','dark']:
+     for theme, color_mode in [('classic','light'), ('classic','dark'), ('terminal','light'), ('terminal','dark')]:
       h.cli('settings','set','theme',theme)
+      h.cli('settings','set','color-mode',color_mode)
       pid,fd=h.spawn_tty();t=Terminal()
       wait_view(fd,t,lambda s:task in s and 'Memory' in s)
       os.write(fd,b'v');wait_view(fd,t,lambda s:marker in s and 'Control' in s)
-      assert marker_style(t,marker)==expected,('preview',task,theme,marker_style(t,marker),expected)
+      assert marker_style(t,marker)==expected,('preview',task,theme,color_mode,marker_style(t,marker),expected)
       os.write(fd,b'\x1b');wait_view(fd,t,lambda s:'Memory' in s and 'Control' not in s)
       os.write(fd,b'\r');wait_view(fd,t,lambda s:marker in s and 'Control' not in s)
-      assert marker_style(t,marker)==expected,('native reconnect',task,theme,marker_style(t,marker),expected)
+      assert marker_style(t,marker)==expected,('native reconnect',task,theme,color_mode,marker_style(t,marker),expected)
       os.write(fd,b'\x1b[24~');wait_view(fd,t,lambda s:'Memory' in s)
       os.write(fd,b'q');assert h.join(pid)==0
      assert h.show(ref)['runtime']==original,'color restoration restarted task'
      h.cli('stop',ref)
-   print('PASS RGB/indexed/default inverse/faint colors across preview and native reconnects, inline/alternate apps, Light/Dark manager themes; task processes preserved')
+   print('PASS RGB/indexed/default inverse/faint colors across preview and native reconnects, inline/alternate apps, both themes in Light/Dark modes; task processes preserved')
   finally:h.cleanup();ENV.clear();ENV.update(saved)
 if __name__=='__main__':main()

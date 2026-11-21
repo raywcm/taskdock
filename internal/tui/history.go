@@ -12,23 +12,23 @@ import (
 )
 
 type historyState struct {
-	id             task.ID
-	name           string
-	lines          []string
-	x, y, maxWidth int
-	ready          bool
-	err            error
-	generation     uint64
-	cancel         context.CancelFunc
+	textViewport
+	id         task.ID
+	name       string
+	ready      bool
+	err        error
+	generation uint64
+	cancel     context.CancelFunc
 }
 type historyLoaded struct {
+	textViewport
 	generation uint64
-	lines      []string
-	maxWidth   int
 	err        error
 }
 
-func (m model) historyHeight() int { return max(1, m.height-5) }
+const historyChromeRows = 5
+
+func (m model) historyHeight() int { return max(1, m.height-historyChromeRows) }
 func (m *model) closeHistory() {
 	if m.history.cancel != nil {
 		m.history.cancel()
@@ -55,15 +55,7 @@ func (m *model) openHistory(record task.Record) tea.Cmd {
 			}
 			return r
 		}, text)
-		var lines []string
-		width := 0
-		if text != "" {
-			lines = strings.Split(strings.TrimSuffix(text, "\n"), "\n")
-			for _, line := range lines {
-				width = max(width, ansi.StringWidth(line))
-			}
-		}
-		return historyLoaded{generation: generation, lines: lines, maxWidth: width, err: err}
+		return historyLoaded{generation: generation, textViewport: newTextViewport(text), err: err}
 	}
 }
 func (m model) historyKey(key string) (tea.Model, tea.Cmd) {
@@ -72,38 +64,16 @@ func (m model) historyKey(key string) (tea.Model, tea.Cmd) {
 		m.mode = ""
 		m.closeHistory()
 		return m, tea.ClearScreen
-	case "up", "k":
-		m.history.y--
-	case "down", "j":
-		m.history.y++
-	case "pgup":
-		m.history.y -= m.historyHeight()
-	case "pgdown":
-		m.history.y += m.historyHeight()
-	case "home":
-		m.history.y = 0
-		m.history.x = 0
-	case "end":
-		m.history.y = max(0, len(m.history.lines)-m.historyHeight())
-	case "left", "h":
-		m.history.x -= 8
-	case "right", "l":
-		m.history.x += 8
 	}
-	m.clampHistory()
+	m.history.scroll(key, m.width-4, m.historyHeight())
 	return m, nil
-}
-
-func (m *model) clampHistory() {
-	m.history.y = max(0, min(m.history.y, max(0, len(m.history.lines)-m.historyHeight())))
-	m.history.x = max(0, min(m.history.x, max(0, m.history.maxWidth-max(1, m.width-4))))
 }
 func (m model) historyView(width int) []string {
 	t, p := m.locale().Text, m.palette()
 	title := t("output_history") + " · " + safe(m.history.name) + " [" + m.shortID(m.history.id) + "]"
 	lines := []string{m.header(width), p.accent.Bold(true).Render(ansi.Truncate(title, width, "…")), p.muted.Render(strings.Repeat("─", width))}
 	height := m.historyHeight()
-	y := max(0, min(m.history.y, max(0, len(m.history.lines)-height)))
+	y := max(0, min(m.history.y, m.history.bottom(height)))
 	for row := 0; row < height; row++ {
 		text := ""
 		switch {

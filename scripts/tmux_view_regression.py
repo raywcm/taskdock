@@ -16,7 +16,8 @@ def main():
         print('SKIP real tmux server test (tmux is not installed)')
         return
     binary = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else 'bin/tdock').resolve()
-    with tempfile.TemporaryDirectory(prefix='tdock-tmux-view-') as tmp:
+    # Keep the tmux socket within the Unix path limit on macOS as well as Linux.
+    with tempfile.TemporaryDirectory(dir='/tmp', prefix='tdock-tmux-view-') as tmp:
         root = pathlib.Path(tmp)
         sockets = root / 'sockets'
         sockets.mkdir(mode=0o700)
@@ -77,6 +78,12 @@ def main():
             wait_output(fd, b'real-work')
             os.write(fd, b'\r')
             wait_output(fd, b'LIVE_PANE_UPDATE')
+            geometry = '#{pane_id} #{pane_pid} #{pane_width} #{pane_height}'
+            before = native('display-message', '-p', '-t', target + ':', geometry)
+            native('rename-session', '-t', target, 'UPDATED live')
+            wait_output(fd, b'UPDATED live')
+            assert native('display-message', '-p', '-t', target + ':', geometry) == before
+            assert h.cli('tmux', 'capture', 'UPDATED live').stdout == native('capture-pane', '-p', '-t', target + ':')
             native('kill-session', '-t', target)
             wait_output(fd, b'unrelated')
             native('send-keys', '-t', 'unrelated', 'echo REMAINING_PANE', 'Enter')
@@ -90,7 +97,7 @@ def main():
                 native('kill-server')
             ENV.clear()
             ENV.update(old_env)
-    print('PASS real tmux discovery, socket selection, exact targets, live TUI preview and read-only attachment')
+    print('PASS real tmux discovery, socket selection, exact targets, live rename, pane identity/size and read-only attachment')
 
 
 if __name__ == '__main__':

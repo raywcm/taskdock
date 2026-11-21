@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"image"
 	"strings"
 	"testing"
 	"time"
@@ -118,6 +119,61 @@ func TestApplicationMouseModeTakesOverFromScrollback(t *testing.T) {
 	}
 }
 
+func TestStatusMouseLegacyEncodingAndRawInput(t *testing.T) {
+	s := newStatusScreen(task.Size{Cols: 80, Rows: 24}, task.Spec{}, nil)
+	defer s.close()
+	if err := s.feed([]byte("\x1b[?1000h")); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	s.updateMouse(&out)
+	if s.hostMouse.Encoding != ansi.ModeMouseExtSgr {
+		t.Fatal("status screen did not request unambiguous mouse coordinates")
+	}
+	if got := string(s.mouseInput([]byte("\x1b[<0;79;23M"))); got != "\x1b[M o7" {
+		t.Fatalf("legacy application click: %q", got)
+	}
+	if got := string(s.mouseInput([]byte("\x1b[<0;79;24m"))); got != "\x1b[M#o7" {
+		t.Fatalf("legacy release outside the application: %q", got)
+	}
+	s.rawInput = true
+	s.updateMouse(&out)
+	if s.hostMouse != s.appMouse {
+		t.Fatal("--no-escape changed the application's physical mouse protocol")
+	}
+}
+
+func TestPixelMouseUsesCurrentWindowAndSourceDimensions(t *testing.T) {
+	size := task.Size{Cols: 80, Rows: 24}
+	s := newStatusScreen(size, task.Spec{}, nil)
+	defer s.close()
+	s.resize(size, image.Pt(800, 480), true)
+	if err := s.feed([]byte("\x1b[?1002h\x1b[?1016h")); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	s.updateMouse(&out)
+	if s.hostMouse.Encoding != ansi.ModeMouseExtSgrPixel {
+		t.Fatal("pixel reports were replaced with cell reports")
+	}
+	check := func(input, expected string) {
+		t.Helper()
+		if got := string(s.mouseInput([]byte(input))); got != expected {
+			t.Fatalf("%q: got %q, want %q", input, got, expected)
+		}
+	}
+	check("\x1b[<65;800;460M", "\x1b[<65;800;460M")
+	check("\x1b[<65;1;461M", "")
+	s.source(task.Size{Cols: 40, Rows: 12})
+	check("\x1b[<0;400;240M", "\x1b[<0;400;240M")
+	check("\x1b[<0;799;479m", "\x1b[<0;400;240m")
+	s.resize(size, image.Pt(1600, 960), false)
+	check("\x1b[<65;800;480M", "\x1b[<65;800;480M")
+	check("\x1b[<65;801;480M", "")
+	s.resize(size, image.Point{}, false)
+	check("\x1b[<65;801;480M", "\x1b[<65;801;480M")
+}
+
 func TestFollowLiveDoesNotBlockInputOnAStalledDraw(t *testing.T) {
 	s := newStatusScreen(task.Size{Cols: 20, Rows: 4}, task.Spec{Name: "inline"}, nil)
 	defer s.close()
@@ -142,5 +198,16 @@ func TestFollowLiveDoesNotBlockInputOnAStalledDraw(t *testing.T) {
 	s.mu.Unlock()
 	if s.viewport.Scrolled() || !s.dirty {
 		t.Fatal("the next draw did not resume live output")
+	}
+}
+
+func TestColorModeFallback(t *testing.T) {
+	for _, tc := range []struct{ hint, want string }{
+		{"15;0", "dark"}, {"0;default;15", "light"}, {"0;255", "light"}, {"", "auto"}, {"0;999", "auto"},
+	} {
+		t.Setenv("COLORFGBG", tc.hint)
+		if got := ResolveColorMode("auto", nil); got != tc.want {
+			t.Fatalf("COLORFGBG=%q: got %q, want %q", tc.hint, got, tc.want)
+		}
 	}
 }

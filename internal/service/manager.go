@@ -41,16 +41,15 @@ func (m *Manager) Settings() (config.Settings, error) { return m.Store.Settings(
 func (m *Manager) Move(ctx context.Context, id task.ID, direction int) error {
 	return m.Store.Move(ctx, id, direction)
 }
-func (m *Manager) SaveSettings(ctx context.Context, settings config.Settings) error {
-	if err := m.Store.SaveSettings(ctx, settings); err != nil {
-		return err
+func (m *Manager) UpdateSettings(ctx context.Context, edit config.SettingsEdit) (config.Settings, error) {
+	settings, err := m.Store.UpdateSettings(ctx, edit)
+	if err != nil {
+		return config.Settings{}, err
 	}
-	if m.maintenance {
-		if err := history.Ensure(m.Store); err != nil {
-			return fmt.Errorf("settings saved but history cleanup could not start: %w", err)
-		}
+	if err := history.Ensure(m.Store); err != nil {
+		return settings, fmt.Errorf("settings saved but history cleanup could not start: %w", err)
 	}
-	return nil
+	return settings, nil
 }
 func (m *Manager) EnableHistory() error { m.maintenance = true; return history.Ensure(m.Store) }
 func (m *Manager) Resources(ctx context.Context, records []task.Record) map[task.ID]task.Resources {
@@ -93,10 +92,20 @@ func (m *Manager) ListWithWarnings(ctx context.Context) ([]task.Record, []error,
 }
 func (m *Manager) Observe(ctx context.Context, r task.Record) task.Record {
 	if r.Runtime == nil {
-		r.Health = "not-started"
-		return r
+		if !r.AwaitingBroker(time.Now()) {
+			latest, err := m.retireOrphan(ctx, r.Spec.ID)
+			if err != nil && !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+				r.Health = "unreachable"
+				return r
+			}
+			r = latest
+		}
+		if r.Runtime == nil {
+			r.Health = "not-started"
+			return r
+		}
 	}
-	if r.Runtime.State == task.Exited || r.Runtime.State == task.Failed {
+	if r.Runtime.State.Finished() {
 		r.Health = "finished"
 		return r
 	}
@@ -113,6 +122,9 @@ func (m *Manager) Observe(ctx context.Context, r task.Record) task.Record {
 	}
 	r.Runtime = &live
 	r.Health = "online"
+	if live.State.Finished() {
+		r.Health = "finished"
+	}
 	return r
 }
 func (m *Manager) Resolve(ctx context.Context, ref string) (task.Record, error) {
@@ -189,11 +201,13 @@ func (m *Manager) Create(ctx context.Context, name string, argv []string, dir st
 			return r, &NameConflictError{Name: name, Suggestion: SuggestedName(records, name, "")}
 		}
 	}
+	if m.maintenance {
+		// Let the worker survive an interrupted first launch, even if this
+		// process exits before it gets to start the broker.
+		_ = history.StartWorker(m.Store)
+	}
 	if err := m.Store.Create(ctx, spec); err != nil {
 		return task.Record{}, err
-	}
-	if m.maintenance {
-		defer func() { _ = history.Ensure(m.Store) }()
 	}
 	if err := m.launch(ctx, id); err != nil {
 		return task.Record{Spec: spec}, fmt.Errorf("task %s: %w (inspect with tdock show %s)", id, err, id)
@@ -237,7 +251,7 @@ func (m *Manager) launch(ctx context.Context, id task.ID) error {
 	go func() { _ = cmd.Wait() }() // Reap while a long-running TUI remains alive.
 	cancel := context.AfterFunc(ctx, func() { read.Close() })
 	defer cancel()
-	_ = read.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_ = read.SetReadDeadline(time.Now().Add(task.StartupTimeout))
 	var ready daemon.Ready
 	if err := json.NewDecoder(io.LimitReader(read, 16*1024)).Decode(&ready); err != nil {
 		return fmt.Errorf("broker readiness is uncertain: %w", err)
@@ -277,8 +291,14 @@ func (m *Manager) Stop(ctx context.Context, ref string) error {
 	if err != nil {
 		return err
 	}
-	if r.Runtime == nil {
-		return errors.New("task never started")
+	if r.Runtime == nil || r.Runtime.State == task.Starting {
+		r, err = m.resolveStartupForStop(ctx, r.Spec.ID)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
 	}
 	grace := r.Runtime.StopGrace
 	if grace == 0 {
@@ -289,7 +309,7 @@ func (m *Manager) Stop(ctx context.Context, ref string) error {
 	const overhead = 3*ipc.Timeout + time.Second
 	ctx, cancel := context.WithTimeout(ctx, min(grace, time.Duration(math.MaxInt64)-overhead)+overhead)
 	defer cancel()
-	if r.Runtime.State == task.Exited || r.Runtime.State == task.Failed {
+	if r.Runtime.State.Finished() {
 		return m.waitRetired(ctx, r.Spec.ID)
 	}
 	if _, err := ipc.Query(ctx, m.Store.Root(), *r.Runtime, true); err != nil {
@@ -310,6 +330,27 @@ func (m *Manager) Stop(ctx context.Context, ref string) error {
 	}
 	return err
 }
+
+func (m *Manager) resolveStartupForStop(ctx context.Context, id task.ID) (task.Record, error) {
+	ctx, cancel := context.WithTimeout(ctx, task.StartupTimeout)
+	defer cancel()
+	for {
+		r, err := m.retireOrphan(ctx, id)
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+			return r, err
+		}
+		// A live broker may own the lock before its control socket is ready.
+		if r.Runtime != nil && r.Runtime.State != task.Starting {
+			return r, nil
+		}
+		select {
+		case <-ctx.Done():
+			return r, fmt.Errorf("waiting for broker startup: %w", ctx.Err())
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}
+
 func (m *Manager) waitRetired(ctx context.Context, id task.ID) error {
 	for {
 		release, err := m.Store.BrokerLock(id)

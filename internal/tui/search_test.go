@@ -146,7 +146,7 @@ func TestTinyWindowBlocksHiddenActionsAndFitsViewport(t *testing.T) {
 func TestHistoryResizeClampsViewportBeforeNextNavigation(t *testing.T) {
 	m := readyModel(t)
 	m.mode = "history"
-	m.history = historyState{ready: true, maxWidth: 150, lines: make([]string, 100), x: 78, y: 81}
+	m.history = historyState{ready: true, textViewport: textViewport{maxWidth: 150, lines: make([]string, 100), x: 78, y: 81}}
 	n, _ := m.Update(tea.WindowSizeMsg{Width: 200, Height: 88})
 	m = n.(model)
 	if m.history.x != 0 || m.history.y != 17 {

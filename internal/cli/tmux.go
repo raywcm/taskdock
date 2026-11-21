@@ -42,11 +42,11 @@ func tmuxCommand() *cobra.Command {
 				return err
 			}
 			if name == "capture" {
-				text, err := server.Capture(cmd.Context(), session)
+				pane, err := server.Capture(cmd.Context(), session)
 				if err != nil {
 					return err
 				}
-				_, err = fmt.Fprint(cmd.OutOrStdout(), text)
+				_, err = fmt.Fprint(cmd.OutOrStdout(), pane.Text)
 				return err
 			}
 			if os.Getenv("TMUX") != "" {

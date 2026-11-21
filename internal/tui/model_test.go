@@ -43,10 +43,12 @@ func (f *fakeBackend) Move(_ context.Context, id task.ID, direction int) error {
 }
 func (f *fakeBackend) List(context.Context) ([]task.Record, error) { return f.records, nil }
 func (f *fakeBackend) Settings() (config.Settings, error)          { return f.settings, nil }
-func (f *fakeBackend) SaveSettings(_ context.Context, s config.Settings) error {
-	f.settings = s
-	f.saved = true
-	return nil
+func (f *fakeBackend) UpdateSettings(_ context.Context, edit config.SettingsEdit) (config.Settings, error) {
+	settings, err := edit(f.settings)
+	if err == nil {
+		f.settings, f.saved = settings, true
+	}
+	return settings, err
 }
 func (f *fakeBackend) Resources(context.Context, []task.Record) map[task.ID]task.Resources {
 	return nil
@@ -163,7 +165,7 @@ func TestSelectedSingleLineAndColumnsFitCJKViewport(t *testing.T) {
 		}
 	}
 	m.width, m.height = 100, 30
-	card := m.card(m.tasks[0], 96, m.columns(92), true)
+	card := m.palette().card(m.rowText(m.tasks[0], m.columns(92)), 96, true)
 	if len(strings.Split(card, "\n")) != 1 {
 		t.Fatalf("selected row wrapped: %q", ansi.Strip(card))
 	}
@@ -203,6 +205,24 @@ func TestSettingsPreviewSaveAndCancel(t *testing.T) {
 	f := m.catalog.(*fakeBackend)
 	if !f.saved || f.settings.Language != "zh-CN" || m.mode != "settings" || m.tab != tabSettings || m.settingsEditing {
 		t.Fatal("settings were not saved/applied")
+	}
+}
+
+func TestSettingsSaveReflectsAnotherFrontend(t *testing.T) {
+	m := readyModel(t)
+	m, _ = press(m, ',')
+	m, _ = press(m, tea.KeyDown)
+	m, _ = press(m, tea.KeyLeft) // classic -> terminal
+	backend := m.catalog.(*fakeBackend)
+	backend.settings.Language = "fr"
+	backend.settings.ColorMode = "light"
+	backend.settings.HistoryRetentionSeconds = 0
+	m, cmd := press(m, tea.KeyEnter)
+	next, _ := m.Update(cmd())
+	m = next.(model)
+	if m.settings.Theme != "terminal" || m.settings.ColorMode != "light" || m.settings.Language != "fr" || m.settings.HistoryRetentionSeconds != 0 ||
+		m.draft != m.settings || backend.settings != m.settings {
+		t.Fatalf("stale draft overwrote another frontend: %+v", m.settings)
 	}
 }
 func TestStopAndDeleteTabs(t *testing.T) {
@@ -747,31 +767,35 @@ func TestMonitorSplitSelectionFailureAndReturn(t *testing.T) {
 	}
 }
 
-func TestMonitorThemeDoesNotRecolorApplicationCells(t *testing.T) {
-	for _, theme := range []string{"light", "dark"} {
-		m := readyModel(t)
-		m.settings.Theme = theme
-		m.width, m.height = 80, 24
-		m.monitoring = true
-		m.monitorFrame = monitor.Frame{Ready: true, Rows: []string{
-			"PLAIN \x1b[7mREVERSE\x1b[0m \x1b[38;2;12;34;56mRGB\x1b[0m \x1b[38;5;202mINDEX\x1b[0m",
-		}}
-		line := strings.Split(m.View().Content, "\n")[5]
-		screen := uv.NewScreenBuffer(m.width, 1)
-		uv.NewStyledString(line).Draw(screen, uv.Rect(0, 0, m.width, 1))
-		cells := screen.Buffer.Lines[0]
-		left, _, _ := m.monitorGeometry()
-		x := left + 5
-		for _, test := range []struct {
-			x     int
-			style uv.Style
-		}{{x, uv.Style{}}, {x + 6, uv.Style{Attrs: uv.AttrReverse}}, {x + 14, uv.Style{Fg: color.RGBA{R: 12, G: 34, B: 56, A: 255}}}, {x + 18, uv.Style{Fg: ansi.IndexedColor(202)}}} {
-			if !cells[test.x].Style.Equal(&test.style) {
-				t.Fatalf("%s theme recolored app cell %d: %+v", theme, test.x, cells[test.x].Style)
+func TestThemesPreserveApplicationColors(t *testing.T) {
+	for _, theme := range config.Themes() {
+		for _, mode := range []string{"light", "dark"} {
+			m := readyModel(t)
+			m.settings.Theme, m.settings.ColorMode = theme, mode
+			m.width, m.height = 80, 24
+			frame := monitor.Frame{Ready: true, Rows: []string{
+				"PLAIN \x1b[7mREVERSE\x1b[0m \x1b[38;2;12;34;56mRGB\x1b[0m \x1b[38;5;202mINDEX\x1b[0m",
+			}}
+			left, _, _ := m.monitorGeometry()
+			x, y := left+5, 5
+			m.monitoring, m.monitorFrame = true, frame
+			line := strings.Split(m.View().Content, "\n")[y]
+			screen := uv.NewScreenBuffer(m.width, 1)
+			uv.NewStyledString(line).Draw(screen, uv.Rect(0, 0, m.width, 1))
+			cells := screen.Buffer.Lines[0]
+			for _, test := range []struct {
+				x     int
+				style uv.Style
+			}{{x, uv.Style{}}, {x + 6, uv.Style{Attrs: uv.AttrReverse}}, {x + 14, uv.Style{Fg: color.RGBA{R: 12, G: 34, B: 56, A: 255}}}, {x + 18, uv.Style{Fg: ansi.IndexedColor(202)}}} {
+				if !cells[test.x].Style.Equal(&test.style) {
+					t.Fatalf("%s/%s recolored app cell %d: %+v", theme, mode, test.x, cells[test.x].Style)
+				}
 			}
-		}
-		if cells[0].Style.Bg == nil || cells[len(cells)-1].Style.Bg == nil {
-			t.Fatal("application defaults escaped into the manager gutters")
+			for _, x := range []int{0, len(cells) - 1} {
+				if (cells[x].Style.Bg == nil) != (theme == "terminal") {
+					t.Fatalf("%s/%s drew the wrong gutter background at %d", theme, mode, x)
+				}
+			}
 		}
 	}
 }
@@ -927,31 +951,30 @@ func TestDialogTitleHintsMatchTheDialogKeys(t *testing.T) {
 	}
 }
 
-func TestAutomaticThemeMatchesExplicitTheme(t *testing.T) {
-	t.Setenv("COLORFGBG", "")
-	for _, test := range []struct {
-		background color.Color
-		theme      string
-	}{{color.White, "light"}, {color.Black, "dark"}} {
-		m := readyModel(t)
-		m.settings.Theme = "auto"
-		next, _ := m.Update(tea.BackgroundColorMsg{Color: test.background})
-		m = next.(model)
-		if m.resolvedTheme() != test.theme {
-			t.Fatal("automatic background chose the wrong theme")
+func TestAutomaticColorModeMatchesExplicitModeInEachTheme(t *testing.T) {
+	for _, theme := range config.Themes() {
+		for _, tc := range []struct {
+			background     color.Color
+			mode, opposite string
+		}{{color.White, "light", "dark"}, {color.Black, "dark", "light"}} {
+			m := readyModel(t)
+			m.settings.Theme = theme
+			m.settings.ColorMode = "auto"
+			next, _ := m.Update(tea.BackgroundColorMsg{Color: tc.background})
+			m = next.(model)
+			if m.palette().colorMode != tc.mode {
+				t.Fatalf("%s: wrong automatic color mode for %s", theme, tc.mode)
+			}
+			manual := m
+			manual.settings.ColorMode = tc.mode
+			if m.View().Content != manual.View().Content {
+				t.Fatalf("%s: automatic and manual %s render differently", theme, tc.mode)
+			}
+			manual.settings.ColorMode = tc.opposite
+			if m.palette().accent.GetForeground() == manual.palette().accent.GetForeground() {
+				t.Fatalf("%s: explicit color mode did not change the accent", theme)
+			}
 		}
-		manual := m
-		manual.settings.Theme = test.theme
-		if m.palette().accent.GetForeground() != manual.palette().accent.GetForeground() || m.View().Content != manual.View().Content {
-			t.Fatal("automatic and explicit palette differ")
-		}
-	}
-	m := readyModel(t)
-	m.settings.Theme = "light"
-	next, _ := m.Update(tea.BackgroundColorMsg{Color: color.Black})
-	m = next.(model)
-	if m.resolvedTheme() != "light" {
-		t.Fatal("terminal background overrode the explicit choice")
 	}
 }
 

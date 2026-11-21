@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"io"
 	"os"
 	"os/signal"
@@ -14,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/raywcm/taskdock/internal/config"
 	"github.com/raywcm/taskdock/internal/i18n"
 	"github.com/raywcm/taskdock/internal/ipc"
@@ -42,11 +44,16 @@ type AttachOptions struct {
 }
 
 func CurrentSize(input *os.File) task.Size {
-	cols, rows, err := term.GetSize(int(input.Fd()))
-	if err != nil || rows < 1 || cols < 1 || rows > 65535 || cols > 65535 {
-		return task.Size{Rows: 24, Cols: 80}
+	size, _ := windowSize(input)
+	return size
+}
+
+func windowSize(input *os.File) (task.Size, image.Point) {
+	w, err := unix.IoctlGetWinsize(int(input.Fd()), unix.TIOCGWINSZ)
+	if err != nil || w.Row == 0 || w.Col == 0 {
+		return task.Size{Rows: 24, Cols: 80}, image.Point{}
 	}
-	return task.Size{Rows: uint16(rows), Cols: uint16(cols)}
+	return task.Size{Rows: w.Row, Cols: w.Col}, image.Pt(int(w.Xpixel), int(w.Ypixel))
 }
 
 // AttachWithOptions opens a separate tty and joins its reader before returning.
@@ -81,7 +88,7 @@ func attachOnce(ctx context.Context, state string, record task.Record, input, ou
 		return AttachResult{}, err
 	}
 	defer tty.Close()
-	physicalSize := CurrentSize(tty)
+	physicalSize, pixels := windowSize(tty)
 	// Bound parser/screen memory even if a terminal reports extreme dimensions.
 	status := !options.NoStatus && physicalSize.Cols <= 512 && physicalSize.Rows <= 257
 	size := sessionSize(physicalSize, status)
@@ -107,7 +114,8 @@ func attachOnce(ctx context.Context, state string, record task.Record, input, ou
 			}
 			return session.Send(frame)
 		})
-		display.noScroll = options.NoEscape
+		display.rawInput = options.NoEscape
+		display.pixels = pixels
 		defer display.close()
 		if err := display.replay(ctx, repository.Root(), record.Spec.ID); err != nil {
 			return AttachResult{}, err
@@ -129,6 +137,8 @@ func attachOnce(ctx context.Context, state string, record task.Record, input, ou
 	// Older brokers have no size-owner field and retain the exclusive semantics.
 	sizeOwner.Store(session.Welcome.AttachMode == "" || session.Welcome.SizeOwner)
 	if display != nil {
+		display.readOnly = readOnly
+		display.setAppearance(preferences, nil)
 		if session.Welcome.Replay == "initial" {
 			// The broker will deliver captured startup bytes exactly once. Logs
 			// seeded before the handshake can already contain those same bytes.
@@ -195,8 +205,13 @@ func attachOnce(ctx context.Context, state string, record task.Record, input, ou
 		}
 		titleActive = true
 		var pending []Incoming
+		queryBackground := display != nil && !options.NoEscape && preferences.ColorMode == "auto" && os.Getenv("NO_COLOR") == ""
 		if display != nil {
-			if err := writeTTY(attachCtx, fd, []byte("\x1b[?1049h\x1b[0m\x1b[r\x1b[?6l\x1b[4l\x1b[H\x1b[2J")); err != nil {
+			start := "\x1b[?1049h\x1b[0m\x1b[r\x1b[?6l\x1b[4l\x1b[H\x1b[2J"
+			if queryBackground {
+				start += ansi.RequestBackgroundColor
+			}
+			if err := writeTTY(attachCtx, fd, []byte(start)); err != nil {
 				return err
 			}
 			// Restore only keyboard/mouse modes on the physical terminal.
@@ -234,6 +249,18 @@ func attachOnce(ctx context.Context, state string, record task.Record, input, ou
 			if display != nil {
 				decoder.Transform = display.mouseInput
 			}
+			if queryBackground {
+				// Our query precedes application output. Later palette replies belong to the app.
+				decoder.Report = func(raw []byte) bool {
+					bg := BackgroundReply(raw)
+					if bg == nil {
+						return false
+					}
+					display.setAppearance(preferences, bg)
+					decoder.Report = nil
+					return true
+				}
+			}
 			buf := make([]byte, 32*1024)
 			var deadline time.Time
 			for {
@@ -247,8 +274,8 @@ func attachOnce(ctx context.Context, state string, record task.Record, input, ou
 					data, detach = decoder.Feed(buf[:n])
 				}
 				deadline = time.Time{}
-				if len(decoder.escape) > 0 {
-					deadline = time.Now().Add(50 * time.Millisecond)
+				if decoder.PendingEscape() {
+					deadline = time.Now().Add(decoder.EscapeTimeout())
 				}
 				if len(data) > 0 || detach {
 					if len(data) > 0 && !readOnly {
@@ -375,20 +402,23 @@ func attachOnce(ctx context.Context, state string, record task.Record, input, ou
 		})
 		wg.Go(func() {
 			// Also cover a resize during log inspection or the repaint handshake.
-			if sizeOwner.Load() && !readOnly {
-				_ = session.Send(ipc.JSON(protocol.Resize, sessionSize(CurrentSize(tty), status)))
+			applySize := func() {
+				size, pixels := windowSize(tty)
+				owner := sizeOwner.Load()
+				if display != nil {
+					display.resize(size, pixels, owner)
+				}
+				if owner && !readOnly {
+					_ = session.Send(ipc.JSON(protocol.Resize, sessionSize(size, status)))
+				}
 			}
+			applySize()
 			for {
 				select {
 				case <-attachCtx.Done():
 					return
 				case <-resize:
-					if display != nil {
-						display.resize(CurrentSize(tty), sizeOwner.Load())
-					}
-					if sizeOwner.Load() && !readOnly {
-						_ = session.Send(ipc.JSON(protocol.Resize, sessionSize(CurrentSize(tty), status)))
-					}
+					applySize()
 				}
 			}
 		})

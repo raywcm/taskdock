@@ -49,6 +49,10 @@ func TestOversizedSpecDoesNotPoisonCatalog(t *testing.T) {
 	if len(records) != 1 {
 		t.Fatalf("valid tasks lost or invalid task exposed: %d", len(records))
 	}
+	spec.Command = []string{"/bin/echo", "ok"}
+	if err := s.Create(context.Background(), spec); err != nil {
+		t.Fatalf("failed create left its ID reserved: %v", err)
+	}
 }
 
 func TestRecordRoundTripAndPermissions(t *testing.T) {

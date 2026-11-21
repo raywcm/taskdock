@@ -11,6 +11,7 @@ import struct
 import sys
 import tempfile
 import termios
+import time
 
 from integration import Harness, until
 from screen_regression import Terminal
@@ -95,9 +96,15 @@ def check_status(harness):
     follow_screen = Terminal()
     wait_view(follower_fd, follow_screen, lambda text: "renamed-work" in text and "RSS" in text)
     assert "renamed-work" in follow_screen.display[-1]
+    assert follow_screen.current.cursor.hidden, "the cropped application cursor appeared at the follower's right edge"
+    assert all(mode << 5 not in follow_screen.current.mode for mode in (1000, 1002, 1003, 1006)), (
+        "read-only application view captured the viewer's mouse")
     conn, kind, welcome = harness.socket(ref, "control")
     assert json.loads(welcome)["size"] == {"rows": 29, "cols": 100}
     conn.close()
+    os.write(fd, b"Q")
+    wait_view(follower_fd, follow_screen, lambda text: "REPLY-1b5b333b3752" in text
+              and not follow_screen.current.cursor.hidden)
     os.write(follower_fd, b"\x1b[24~")
     assert harness.join(follower) == 0
     os.write(fd, b"S")
@@ -162,6 +169,44 @@ while True:
     assert b"APPLICATION-INPUT:" not in harness.cli("logs", ref).stdout
     harness.cli("stop", ref)
     print("PASS inline app scrollback in read-only fullscreen and monitor without injecting wheel input", flush=True)
+
+
+def check_mouse_boundaries(harness):
+    app_input = harness.root / "app-input"
+    shell_input = harness.root / "shell-input"
+    child = r"""
+import os, sys, tty
+tty.setraw(0)
+os.write(1, b"\x1b[?1049h\x1b[?1002h\x1b[?1006hMOUSE-READY")
+with open(sys.argv[1], 'wb') as capture:
+    while True:
+        data = os.read(0, 4096)
+        capture.write(data.split(b'\x04', 1)[0])
+        if not data or b'\x04' in data:
+            break
+os.write(1, b"\x1b[?1002l\x1b[?1006l\x1b[?1049l")
+"""
+    shell = (shlex.join([sys.executable, "-c", child, str(app_input)]) +
+             '; stty sane; printf "BASH-READ>"; IFS= read -r line; printf %s "$line" > "$1"')
+    ref = harness.create("mouse-edge", "/bin/bash", "--noprofile", "--norc", "-ic",
+                         shell, "bash", str(shell_input))
+    pid, fd = harness.spawn_tty("attach", ref)
+    terminal = Terminal()
+    wait_view(fd, terminal, lambda text: "MOUSE-READY" in text and 1006 << 5 in terminal.current.mode)
+    start, drag, release = b"\x1b[<0;8;23M", b"\x1b[<32;12;24M", b"\x1b[<0;12;24m"
+    wheel = b"\x1b[<65;10;23M"
+    paste = b"\x1b[200~\x1b[<65;10;24M\x1b[201~"
+    os.write(fd, b"\x1b[<0;3;24M\x1b[<0;3;22m" + start + drag + release
+             + b"\x1b[<65;10;24M" + wheel + paste + b"\x04")
+    wait_view(fd, terminal, lambda text: "BASH-READ>" in text and 1006 << 5 not in terminal.current.mode)
+    os.write(fd, b"\x1b[<65;")
+    time.sleep(.12)  # A complete mouse introducer can arrive before its coordinates over SSH.
+    os.write(fd, b"5;5Mok\r")
+    assert harness.join(pid) == 0
+    expected = start + b"\x1b[<32;12;23M\x1b[<0;12;23m" + wheel + paste
+    assert (app_input.read_bytes(), shell_input.read_bytes()) == (expected, b"ok"), (
+        app_input.read_bytes(), shell_input.read_bytes())
+    print("PASS status-row hit testing, drag release, literal paste and Bash input after mouse tracking ends", flush=True)
 
 
 def check_shell_return_from_scrollback(harness):
@@ -265,6 +310,7 @@ def main():
             harness.cli("settings", "set", "language", "en")
             harness.cli("settings", "set", "history-retention", "off")
             check_status(harness)
+            check_mouse_boundaries(harness)
             check_scrollback(harness)
             check_shell_return_from_scrollback(harness)
             check_nesting(harness)

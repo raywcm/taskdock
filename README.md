@@ -97,6 +97,11 @@ account after a dropped connection. Tasks do not survive a host reboot.
 | F5, F1/? | Refresh or show help |
 | q / Ctrl+C | Exit the manager without stopping tasks |
 
+Press `,` to change **Theme** and **Color mode** independently.
+Classic highlights the selected row. Terminal keeps your terminal’s background
+and marks the selection with a colored `›`. Both support automatic, dark, and
+light colors. Press Enter to save or Esc to cancel.
+
 Fullscreen sessions have a bottom row with the session name and process-tree
 memory use. Use `tdock --no-status` for native forwarding and terminal scrollback.
 Starting a nested manager or session inside TaskDock is blocked; `ls`, `logs` and

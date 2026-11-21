@@ -233,12 +233,15 @@ def test_languages(h):
         os.write(fd,b's');wait_view(fd,terminal,lambda text:stop in text)
         modal(terminal,stop,'source',fd=fd);os.write(fd,b'\x1b')
         wait_view(fd,terminal,lambda text:stop not in text and 'STATIC-source' not in text)
-        os.write(fd,b'\x1bOQ');drain(fd,.1)
+        os.write(fd,b'\x1bOQ')
+        wait_view(fd,terminal,lambda text:'> source' in text and '╭' in text)
         os.write(fd,b'\x01\x0bwork\r')
         wait_view(fd,terminal,lambda text:conflict in text and 'work-2' in text)
         modal(terminal,conflict,'work-2',fd=fd)
-        os.write(fd,b'\x1b');drain(fd,.1)
-        os.write(fd,b'\x1b');wait_view(fd,terminal,lambda text:conflict not in text and 'STATIC-source' not in text)
+        os.write(fd,b'\x1b')
+        wait_view(fd,terminal,lambda text:conflict not in text and '> work' in text)
+        os.write(fd,b'\x1b')
+        wait_view(fd,terminal,lambda text:'source' in text and 'work' in text and '╭' not in text)
         os.write(fd,b'q');drain(fd);assert h.join(pid)==0
         assert identity(h,source)==before and h.show(source)['spec']['name']=='source'
     print('PASS monitor label, stop and numbered-name modals in five languages, cancellation preserves original task',flush=True)

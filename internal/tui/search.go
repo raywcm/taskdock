@@ -60,24 +60,8 @@ func (m model) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mode = ""
 			m.input.Blur()
 			return m, m.resumeMonitor()
-		case "up":
-			m.searchCursor = max(0, m.searchCursor-1)
-			return m, nil
-		case "down":
-			m.searchCursor = min(last, m.searchCursor+1)
-			return m, nil
-		case "pgup", "pgdown":
-			step := max(1, m.height-8)
-			if key.String() == "pgup" {
-				step = -step
-			}
-			m.searchCursor = min(last, max(0, m.searchCursor+step))
-			return m, nil
-		case "ctrl+home":
-			m.searchCursor = 0
-			return m, nil
-		case "ctrl+end":
-			m.searchCursor = last
+		case "up", "down", "pgup", "pgdown", "ctrl+home", "ctrl+end":
+			m.searchCursor = scrollRow(strings.TrimPrefix(key.String(), "ctrl+"), m.searchCursor, max(1, m.height-8), last)
 			return m, nil
 		case "ctrl+enter":
 			return m, nil
@@ -165,10 +149,10 @@ func (m model) searchView(width int) []string {
 		}
 		label := fmt.Sprintf("%s [%s] · %s", safe(r.Spec.Name), m.shortID(r.Spec.ID), state)
 		label = ansi.Truncate(label, max(1, width-4), "…")
-		if i == cursor {
-			label = p.accent.Reverse(true).Bold(true).Render(label)
+		if i == cursor && !p.terminal {
+			label = p.accent.Render(label)
 		}
-		lines = append(lines, "  "+label)
+		lines = append(lines, p.listChoice(label, i == cursor))
 	}
 	if count == 0 {
 		lines = append(lines, t("search_empty"))

@@ -6,11 +6,13 @@ import pathlib
 import sys
 import tempfile
 import termios
+import time
 
 from integration import Harness, until
 from screen_regression import Terminal
 from ui_regression import wait_view
 from monitor_dialog_regression import resize
+from monitor_control_regression import received
 
 FIXTURE = r"""
 import os
@@ -60,9 +62,15 @@ def main():
                 wait_view(
                     tty_fd,
                     terminal,
-                    lambda text: "PREVIEW-ALIVE-historical" in text and "Control" in text,
+                    lambda text: "PREVIEW-ALIVE-historical" in text and "Control" in text
+                    and 1006 << 5 in terminal.current.mode,
                 )
-                os.write(tty_fd, b"\x1b[<64;5;5M")
+                # Pane origin is column 25, row 6 on this 80x24 terminal.
+                before_input = received(harness, historical)
+                os.write(tty_fd, b"\x1b[<64;2;2M\x1b[<64;")
+                time.sleep(.12)
+                os.write(tty_fd, b"29;10M")
+                until(lambda: received(harness, historical) == before_input + b"\x1b[<64;5;5M")
                 wait_view(tty_fd, terminal, lambda text: "INPUT:1b5b3c36343b353b354d" in text)
                 assert "codex" not in "".join(
                     terminal.display

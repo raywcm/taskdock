@@ -41,12 +41,18 @@ Directories are 0700, files 0600. Socket peers verify UID, task ID and broker
 instance ID.
 
 Recovery acquires the broker lock before updating stale metadata. It never
-signals stored PIDs. A lost broker cannot recover its PTY.
+signals stored PIDs. A lost broker cannot recover its PTY. If creation stops
+before the broker writes its first runtime snapshot, automatic recovery allows
+the five-second startup window to elapse, then records the failure in history.
+An explicit stop or recovery can retire the session as soon as both the
+catalog lock and broker lock are available.
 
 Session order lives in `order.json`. Moves re-read it under the catalog lock
 so concurrent frontends preserve each other's changes. A separate `__history`
 worker removes expired records after their broker locks become available.
 Retention defaults to one hour. Set it to zero to disable expiry.
+Recovery still runs with expiry disabled. A cleanup error for one session is
+logged and retried on later passes while other sessions continue to be processed.
 
 ## Connections
 
@@ -87,8 +93,9 @@ at 28 columns. Only the selected preview is active. Leaving the monitor retains
 the PTY size. Repeated identical resize requests are ignored.
 
 Ctrl+Q and F12 detach from fullscreen sessions.
-Bracketed paste bypasses shortcuts. Split escape sequences are buffered and
-incomplete sequences flush after 50 ms. `--no-escape` forwards every key.
+Bracketed paste bypasses shortcuts. Partial keys flush after 50 ms. Recognized
+mouse reports and background-color replies allow 500 ms between fragments.
+`--no-escape` forwards every input byte.
 In the monitor, ↑/↓ switches tasks, Shift+↑/↓ sends application arrows, and
 Ctrl+Q/F12 or Esc returns to the list. Ctrl+F pauses forwarding for search.
 Enter opens fullscreen from the task list.

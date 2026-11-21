@@ -66,7 +66,7 @@ def main():
             wait_view(fd,terminal,lambda text:'Keyboard shortcuts' in text)
             os.write(fd,b'?')
             wait_view(fd,terminal,lambda text:'live-work' in text and 'Keyboard shortcuts' not in text)
-            os.write(fd,b'\x1b[C\x1b[C') # Running -> History -> Settings
+            os.write(fd,b'\t\t') # Running -> History -> Settings
             text=wait_view(fd,terminal,lambda text:'Language' in text and 'Default tab' in text and 'Enter edit' in text)
             assert version in text and version not in terminal.display[0], 'version belongs in settings'
             tab_row=next(i for i,row in enumerate(terminal.display) if all(label in row for label in ('Running','History','Settings')))
@@ -74,7 +74,7 @@ def main():
             assert terminal.current.buffer[tab_row][tab_x].reverse, 'settings tab was not selected'
             assert 'live-work' not in text and 'completed-work' not in text
             assert 'RSS' not in text and '100%' not in text and 'metrics_hint' not in text
-            os.write(fd,b'\x1b[C') # Settings -> Running, without editing
+            os.write(fd,b'\x1b[D\x1b[D') # Settings -> History -> Running
             wait_view(fd,terminal,lambda text:'live-work' in text and 'Memory' in text)
             os.write(fd,b',') # Shortcut directly focuses settings editor
             wait_view(fd,terminal,lambda text:'Language' in text and 'Default tab' in text)
@@ -89,16 +89,16 @@ def main():
             os.write(fd,b'\x1b[D') # History -> Running
             wait_view(fd,terminal,lambda text:'live-work' in text)
             os.write(fd,b',');wait_view(fd,terminal,lambda text:'刷新间隔' in text)
-            os.write(fd,b'\x1b[B\x1b[B\x1b[B\x1b[C\r')
+            os.write(fd,b'\x1b[B' * 4 + b'\x1b[C\r')
             wait_view(fd,terminal,lambda text:'设置已保存' in text and '刷新间隔' in text)
             assert json.loads(h.cli('settings','--json').stdout)['show_resources'] is False
-            os.write(fd,b'\t') # Settings -> Running
+            os.write(fd,b'\x1b[Z\x1b[Z') # Settings -> History -> Running
             wait_view(fd,terminal,lambda text:'live-work' in text and 'CPU' not in text)
             os.write(fd,b',');wait_view(fd,terminal,lambda text:'已停止自动删除' in text)
             os.write(fd,b'\x1b[A\x1b[D\r') # Wrap to retention, one hour -> thirty minutes, save
             wait_view(fd,terminal,lambda text:'设置已保存' in text and '30 分钟' in text)
             assert json.loads(h.cli('settings','--json').stdout)['history_retention_seconds']==1800
-            os.write(fd,b'\t');wait_view(fd,terminal,lambda text:'live-work' in text)
+            os.write(fd,b'\x1b[Z\x1b[Z');wait_view(fd,terminal,lambda text:'live-work' in text)
             os.write(fd,b'q');drain(fd);assert h.join(pid)==0
             h.cli('settings','set','default-tab','stop')
             pid,fd=h.spawn_tty();terminal=Terminal()

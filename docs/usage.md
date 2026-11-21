@@ -74,7 +74,9 @@ tdock tmux -S /path/to/socket capture -t work
 
 `view` opens tmux's own read-only client with its native pane layout. Use the
 tmux detach binding to leave (by default Ctrl+B, then d). Inside tmux, use
-TaskDock's preview or `capture` to inspect another session.
+TaskDock's preview or `capture` to inspect another session. Preview and capture
+leave pane dimensions alone. On older versions such as tmux 3.0a, tmux can
+resize a window to fit a native read-only client.
 
 ## Detach keys
 

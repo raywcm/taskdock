@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -19,7 +20,7 @@ type Session struct {
 }
 
 func (s Server) command(ctx context.Context, args ...string) *exec.Cmd {
-	flags := []string{"-N"}
+	var flags []string
 	if s.Socket != "" {
 		flags = append(flags, "-S", s.Socket)
 	} else if s.Label != "" {
@@ -63,7 +64,9 @@ func (s Server) List(ctx context.Context) ([]Session, error) {
 			continue
 		}
 		id, name, ok := strings.Cut(line, " ")
-		if !ok || !strings.HasPrefix(id, "$") {
+		digits, hasPrefix := strings.CutPrefix(id, "$")
+		_, parseErr := strconv.ParseUint(digits, 10, 64)
+		if !ok || !hasPrefix || parseErr != nil {
 			return nil, fmt.Errorf("unexpected tmux list-sessions output")
 		}
 		sessions = append(sessions, Session{ID: id, Name: name})
@@ -104,5 +107,8 @@ func (s Server) Capture(ctx context.Context, session Session) (string, error) {
 }
 
 func (s Server) Viewer(ctx context.Context, session Session) *exec.Cmd {
-	return s.command(ctx, "attach-session", "-r", "-E", "-t", session.ID)
+	// if-shell connects only to an existing server, including on tmux 3.0a
+	// which lacks the global -N option. -F evaluates a constant without
+	// invoking a shell. List validates the numeric session ID.
+	return s.command(ctx, "if-shell", "-F", "1", "attach-session -r -E -t '"+session.ID+"'")
 }

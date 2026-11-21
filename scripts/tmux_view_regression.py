@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tempfile
 
-from integration import ENV, Harness, until, wait_output
+from integration import ENV, Harness, drain, until, wait_output
 
 
 def main():
@@ -39,6 +39,7 @@ def main():
             listed = json.loads(h.cli('tmux', '-L', 'default', 'ls', '--json').stdout)
             assert [s['name'] for s in listed] == ['real-work'], listed
             target = listed[0]['id']
+            native('new-session', '-ds', 'unrelated', '/bin/sh')
             socket = native('display-message', '-p', '#{socket_path}').decode().strip()
             until(lambda: b'READ_ONLY_MARKER' in h.cli('tmux', '-S', socket, 'capture', '-t', target).stdout)
             assert h.cli('tmux', 'capture', 'real', check=False).returncode != 0
@@ -60,10 +61,15 @@ def main():
 
             pid, fd = h.spawn_tty('tmux', 'view', '-t', 'real-work')
             wait_output(fd, b'LIVE_PANE_UPDATE')
-            assert native('list-clients', '-F', '#{client_readonly}').strip() == b'1'
+            client = native('list-clients', '-F', '#{session_id} #{client_readonly}').decode().strip()
+            assert client == target + ' 1', client
+            os.write(fd, b'echo THIS_INPUT_MUST_STAY_PRIVATE\r')
+            # Separate typed input from the detach binding across tmux's paste window.
+            drain(fd, .2)
             os.write(fd, b'\x02d')
             assert h.join(pid) == 0
             assert native('has-session', '-t', target) == b''
+            assert b'THIS_INPUT_MUST_STAY_PRIVATE' not in native('capture-pane', '-p', '-t', target + ':')
         finally:
             h.cleanup()
             if created:

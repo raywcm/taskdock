@@ -42,7 +42,6 @@ type statusScreen struct {
 	clock         string
 	mode          string
 	rowStyle      string
-	rowMarker     string
 	memory        string
 	previous      []string
 	controls      strings.Builder
@@ -366,14 +365,12 @@ func (s *statusScreen) update(name string, resources *task.Resources) {
 
 func (s *statusScreen) setAppearance(settings config.Settings, background color.Color) {
 	style := ansi.NewStyle().Reset().Bold()
-	marker := ""
 	mode := ResolveColorMode(settings.ColorMode, background)
 	var fg, bg color.Color = ansi.White, ansi.Blue
 	if mode == "light" {
 		fg, bg = ansi.Blue, ansi.White
 	}
 	if settings.Theme == "terminal" {
-		marker = "┃ "
 		switch colorprofile.Env(os.Environ()) {
 		case colorprofile.TrueColor:
 			fg, bg = ansi.HexColor("#dce6f3"), ansi.HexColor("#263b58")
@@ -391,7 +388,7 @@ func (s *statusScreen) setAppearance(settings config.Settings, background color.
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.rowStyle, s.rowMarker, s.dirty = style.String(), marker, true
+	s.rowStyle, s.dirty = style.String(), true
 }
 
 func statusText(text string) string {
@@ -407,11 +404,6 @@ func (s *statusScreen) statusLine(width int) string {
 	if width <= 0 {
 		return ""
 	}
-	marker := ""
-	if width >= 24 {
-		marker = s.rowMarker
-		width -= ansi.StringWidth(marker)
-	}
 	window := s.windowName
 	if window == "" {
 		window = s.command
@@ -425,7 +417,7 @@ func (s *statusScreen) statusLine(width int) string {
 	room := width - ansi.StringWidth(right)
 	if room < 8 {
 		label := ansi.Truncate("["+name+"]", width, "…")
-		return marker + label + strings.Repeat(" ", width-ansi.StringWidth(label))
+		return label + strings.Repeat(" ", width-ansi.StringWidth(label))
 	}
 	if s.title != "" && room >= 18 {
 		right = " \"" + ansi.Truncate(s.title, room/2-2, "…") + "\"" + right
@@ -438,7 +430,7 @@ func (s *statusScreen) statusLine(width int) string {
 	if s.mode != "" && ansi.StringWidth(left+" · "+s.mode+right) < width {
 		left += " · " + s.mode
 	}
-	return marker + left + strings.Repeat(" ", width-ansi.StringWidth(left+right)) + right
+	return left + strings.Repeat(" ", width-ansi.StringWidth(left+right)) + right
 }
 
 func (s *statusScreen) draw(ctx context.Context, fd int) error {

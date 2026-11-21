@@ -30,7 +30,7 @@ func TestStatusLineBoundsAndSanitizesMetadata(t *testing.T) {
 			t.Fatalf("width %d: %q", width, line)
 		}
 	}
-	s := statusScreen{name: "a", command: "sh", memory: "1 MiB", rowMarker: "┃ "}
+	s := statusScreen{name: "a", command: "sh", memory: "1 MiB"}
 	for width := 1; width <= 80; width++ {
 		if line := s.statusLine(width); ansi.StringWidth(line) != width {
 			t.Fatalf("footer does not fill %d columns: %q", width, line)

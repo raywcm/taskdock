@@ -13,7 +13,7 @@ def reply(mode):
     return b'\x1b]11;rgb:' + b'/'.join([value] * 3) + b'\a'
 
 
-def check_status_theme(h, theme, foreground, background, detected=None):
+def check_status_theme(h, foreground, background, detected=None):
     pid, fd = h.spawn_tty('attach', 'theme-work')
     term = Terminal()
     if detected:
@@ -26,9 +26,8 @@ def check_status_theme(h, theme, foreground, background, detected=None):
         cell = term.current.buffer[term.rows-1][line.index('theme-work')]
         return (cell.fg, cell.bg) == (foreground, background)
     wait_view(fd, term, ready)
-    if theme == 'terminal':
-        assert term.display[-1].startswith('┃ [theme-work] 0:')
-        assert term.current.buffer[term.rows-1][2].bold
+    assert term.display[-1].startswith('[theme-work] 0:')
+    assert term.current.buffer[term.rows-1][0].bold
     def full_row():
         row = term.current.buffer[term.rows-1]
         return all(row[x].bg == background and not row[x].reverse for x in range(term.columns))
@@ -100,7 +99,7 @@ def check_palettes(h):
             assert cell.reverse == (theme == 'classic') and ('›' in line) == (theme == 'terminal')
             os.write(fd, b'q')
             assert h.join(pid) == 0
-            check_status_theme(h, theme, status_fg, status_bg, detected if preference == 'auto' else None)
+            check_status_theme(h, status_fg, status_bg, detected if preference == 'auto' else None)
 
 
 def test_terminal_theme(h):
@@ -157,7 +156,7 @@ def test_terminal_theme(h):
     os.write(fd, b'q')
     assert h.join(pid) == 0
 
-    check_status_theme(h, 'terminal', '2f517f', 'dce6f3')
+    check_status_theme(h, '2f517f', 'dce6f3')
     h.create('second', '/bin/sh', '-c', 'read hold')
     ENV['NO_COLOR'] = '1'
     pid, fd = h.spawn_tty()
@@ -168,7 +167,7 @@ def test_terminal_theme(h):
     assert selected('second').fg == selected('second').bg == 'default' and not selected('second').reverse
     os.write(fd, b'q')
     assert h.join(pid) == 0
-    check_status_theme(h, 'terminal', 'default', 'default')
+    check_status_theme(h, 'default', 'default')
 
 
 def main():
@@ -187,7 +186,7 @@ def main():
             ENV.pop('COLORTERM')
             for mode, ink, paper in [('light', 'blue', 'afd7ff'), ('dark', 'white', 'blue')]:
                 h.cli('settings', 'set', 'color-mode', mode)
-                check_status_theme(h, 'terminal', ink, paper)
+                check_status_theme(h, ink, paper)
             ENV['COLORTERM'] = 'truecolor'
             assert not received(h, ref), 'manager background replies reached the application'
             check_app_background_query(h)

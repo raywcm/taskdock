@@ -67,7 +67,14 @@ configuration and recovery procedures.
 ## Coding agents
 
 Codex, Claude Code and OpenCode launch as ordinary terminal commands. No
-agent-specific integration is required. The default fullscreen view and monitor
+agent-specific integration is required. A new native TaskDock shell exports a
+namespaced `TMUX_PANE` marker for applications such as Codex that recognize
+the pane independently of a tmux server. TaskDock preserves an enclosing tmux
+environment. It keeps its own PTY, does not create a tmux socket, and does not
+implement tmux's server commands. Codex can use its tmux keyboard fallback
+and terminal mouse reporting. Features requiring a tmux server, such as tmux
+paste buffers or pane graphics, remain subject to the application's fallback.
+An already running shell retains its original environment. The default fullscreen view and monitor
 render bounded terminal screens.
 `attach --no-status` forwards native output and input.
 

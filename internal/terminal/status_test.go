@@ -14,12 +14,20 @@ import (
 
 func TestStatusLineBoundsAndSanitizesMetadata(t *testing.T) {
 	for _, width := range []int{1, 8, 20, 80, 160} {
-		line := statusLine(strings.Repeat("项目", 35)+"\x1b\r\n", "1023 MiB", width)
+		s := statusScreen{name: strings.Repeat("项目", 35) + "\x1b\r\n", memory: "1023 MiB", clock: "15:45 21-Nov-26"}
+		line := s.statusLine(width)
 		if ansi.StringWidth(line) > width || strings.ContainsAny(line, "\x1b\r\n") {
 			t.Fatalf("invalid row at width %d: %q", width, line)
 		}
-		if width >= 20 && !strings.Contains(line, "RSS 1023 MiB") {
+		if width >= 24 && !strings.Contains(line, "RSS 1023 MiB") {
 			t.Fatal("name hid memory", line)
+		}
+	}
+	for width := 1; width < 160; width++ {
+		s := statusScreen{name: strings.Repeat("会话", 128), windowName: "codex", title: strings.Repeat("赛", 300), mode: "Read only", memory: "1023 MiB", clock: "15:45 21-Nov-26"}
+		line := s.statusLine(width)
+		if ansi.StringWidth(line) > width || (width >= 65 && !strings.Contains(line, "] 0:codex*")) {
+			t.Fatalf("width %d: %q", width, line)
 		}
 	}
 	if got := sessionSize(task.Size{Cols: 80, Rows: 1}, true); got.Rows != 1 {
@@ -89,6 +97,39 @@ func TestStatusScreenUnicodeTitleDoesNotPrint(t *testing.T) {
 	rows := vtscreen.Rows(s.e)
 	if got := strings.TrimSpace(ansi.Strip(rows[0])); got != "prompt>" {
 		t.Fatalf("window title leaked onto the application screen: %q", got)
+	}
+}
+
+func TestStatusPaneTitleAndWindowName(t *testing.T) {
+	const name = "project"
+	s := newStatusScreen(task.Size{Cols: 100, Rows: 24}, task.Spec{Name: name, Command: []string{"/bin/bash"}}, nil)
+	defer s.close()
+	for _, part := range []string{"\x1b]2;全国", "总决赛;A\u202e", "\x1b", "\\"} {
+		if err := s.feed([]byte(part)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.update(name, &task.Resources{ForegroundCommand: "codex"})
+	if got := s.statusLine(100); !strings.HasPrefix(got, "[project] 0:codex*") || !strings.Contains(got, "全国总决赛;A") || strings.ContainsRune(got, '\u202e') {
+		t.Fatal(got)
+	}
+	s.windowName = "review"
+	s.update(name, &task.Resources{ForegroundCommand: "bash"})
+	_ = s.feed([]byte("\x1b]0;\a"))
+	if got := s.statusLine(100); !strings.HasPrefix(got, "[project] 0:review*") || strings.Contains(got, "总决赛") {
+		t.Fatal(got)
+	}
+	// Only live notifications from the tmux-compatible application reach the host.
+	wrapped := []byte("\x1bPtmux;\x1b\x1b]9;done\x07\x1b\\")
+	_ = s.feed(wrapped)
+	if s.controls.Len() != 0 {
+		t.Fatal("replayed notification")
+	}
+	s.start()
+	_ = s.feed(wrapped)
+	_ = s.feed([]byte("\x1b]9;7;ignored\a\x1b]777;other;ignored\a"))
+	if s.controls.String() != "\x1b]9;done\x1b\\" {
+		t.Fatalf("notification: %q", s.controls.String())
 	}
 }
 

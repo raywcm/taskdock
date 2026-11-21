@@ -35,7 +35,7 @@ def paint(*args):
         ).encode(),
     )
     os.write(1, ("\x1b[2;%dHX" % size.columns).encode())
-    os.write(1, ("\x1b]0;查看5090当前训练状态 | codex\a").encode())
+    os.write(1, ("\x1b]0;全国总决赛 | codex\a").encode())
 
 
 signal.signal(signal.SIGWINCH, paint)
@@ -64,6 +64,7 @@ def check_status(harness):
     terminal = Terminal()
     wait_view(fd, terminal, lambda text: "SIZE-23-80" in text and "RSS" in text)
     assert "status-work" in terminal.display[-1], terminal.display
+    assert "全国总决赛" in terminal.display[-1], terminal.display
     assert "BOTTOM-CELL" in terminal.display[-2], terminal.display
     assert (
         b"SIZE-22-80" not in harness.cli("logs", ref).stdout
@@ -76,7 +77,7 @@ def check_status(harness):
     os.write(fd, b"\x1b[<64;5;5M" * 6)
     wait_view(fd, terminal, lambda text: "WHEEL-SEEN" in text)
     assert "codex" not in "".join(
-        terminal.display
+        terminal.display[:-1]
     ), "Unicode window title leaked into the prompt after scrolling"
     os.write(fd, b"Q")
     wait_view(fd, terminal, lambda text: "REPLY-1b5b333b3752" in text)
@@ -124,6 +125,25 @@ def check_status(harness):
     assert harness.join(native) == 0
     harness.cli("stop", ref)
     print("PASS fullscreen status, Unicode titles, resize and reconnect", flush=True)
+
+def check_window_names(harness):
+    base = ["new", "-ds"]
+    for name, flags in (("automatic", []), ("pinned", ["-n", "工作区"])):
+        ref = harness.cli(*base, name, *flags, "--", "/bin/bash", "--noprofile", "--norc", "-i").stdout.decode().strip()
+        pid, fd = harness.spawn_tty("attach", ref)
+        terminal = Terminal()
+        label = "工作区" if flags else "bash"
+        wait_view(fd, terminal, lambda _: f"[{name}] 0:{label}*" in terminal.display[-1])
+        os.write(fd, b"sleep 30\r")
+        if not flags:
+            wait_view(fd, terminal, lambda _: "0:sleep*" in terminal.display[-1])
+        os.write(fd, b"\x03")
+        wait_view(fd, terminal, lambda _: f"0:{label}*" in terminal.display[-1])
+        os.write(fd, b"\x11")
+        assert harness.join(pid) == 0
+        harness.cli("stop", ref)
+    print("PASS named window and live Bash foreground command across job control", flush=True)
+
 
 def check_scrollback(harness):
     inline = r"""
@@ -310,6 +330,7 @@ def main():
             harness.cli("settings", "set", "language", "en")
             harness.cli("settings", "set", "history-retention", "off")
             check_status(harness)
+            check_window_names(harness)
             check_mouse_boundaries(harness)
             check_scrollback(harness)
             check_shell_return_from_scrollback(harness)

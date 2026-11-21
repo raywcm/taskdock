@@ -34,9 +34,11 @@ def main():
    assert json.loads(h.cli('logs','argv').stdout)==['space ; $HOME','--name=literal']
    child=json.loads(h.cli('new','-ds','child-flags','--json','/bin/sh','-c','printf CHILD-FLAGS').stdout)
    h.finished(child['spec']['id']);assert b'CHILD-FLAGS' in h.cli('logs','child-flags').stdout
+   window=json.loads(h.cli('new','-ds','named-session','-n','工作区','--json','--','/bin/sh','-c','exit 0').stdout)
+   assert window['spec']['name']=='named-session' and window['spec']['window_name']=='工作区'
    h.cli('rename-session','-t','work','renamed');assert h.show(ref)['spec']['name']=='renamed'
    h.cli('rename',ref,'work');assert h.show(ref)['runtime']['child_pid']==before['child_pid']
-   for command in [('rename','-t','work','work','bad'),('attach','-t','work','work'),('has','-t',''),('new','-A'),('new','-n','old'),('list',),('status','work'),('rm','work'),('show','work','--json')]:
+   for command in [('rename','-t','work','work','bad'),('attach','-t','work','work'),('has','-t',''),('new','-A'),('list',),('status','work'),('rm','work'),('show','work','--json')]:
     assert h.cli(*command,check=False).returncode!=0,command
    assert h.show(ref)['spec']['name']=='work' and h.show(ref)['health']=='online'
    assert json.loads(h.cli('list-sessions','--json').stdout)==json.loads(h.cli('ls','--json').stdout)
@@ -45,7 +47,7 @@ def main():
    assert h.cli('new','-Ads','work',check=False).returncode!=0
    h.cli('delete','work')
    live=h.create('live',sys.executable,'-c',FIXTURE);until(lambda:b'MODES-READY' in h.cli('logs',live).stdout)
-   pid,fd=h.spawn_tty('new-session','-A','-s','live');wait_output(fd,b'live [');os.write(fd,b'reused-live\n')
+   pid,fd=h.spawn_tty('new-session','-A','-s','live');wait_output(fd,b'[live]');os.write(fd,b'reused-live\n')
    wait_output(fd,b'ECHO:reused-live');os.write(fd,b'\x1b[24~');assert h.join(pid)==0
    owner,_=connect(h,live,'exclusive')
    try:
@@ -56,7 +58,7 @@ def main():
    finally:owner.close()
    owner,_=connect(h,live,'exclusive')
    try:
-    pid,fd=h.spawn_tty('attach-session','-d','-t','live');wait_output(fd,b'live [')
+    pid,fd=h.spawn_tty('attach-session','-d','-t','live');wait_output(fd,b'[live]')
     os.write(fd,b'takeover-shortcut\n');wait_output(fd,b'ECHO:takeover-shortcut')
     os.write(fd,b'\x11');assert h.join(pid)==0
    finally:owner.close()

@@ -44,7 +44,8 @@ func processes(ctx context.Context) (map[int]process, error) {
 }
 func parseStat(pid int, line string) (process, bool) {
 	end := strings.LastIndex(line, ") ")
-	if end < 0 {
+	start := strings.IndexByte(line, '(')
+	if start < 0 || end <= start {
 		return process{}, false
 	}
 	fields := strings.Fields(line[end+2:])
@@ -59,7 +60,9 @@ func parseStat(pid int, line string) (process, bool) {
 		return process{}, false
 	}
 	// Linux amd64/arm64 expose /proc CPU counters in USER_HZ=100 units.
-	return process{pid: pid, parent: parent, identity: fields[19], cpu: (user + system) / 100, memory: uint64(rss) * uint64(os.Getpagesize())}, true
+	group, _ := strconv.Atoi(fields[2])
+	foreground, _ := strconv.Atoi(fields[5])
+	return process{pid: pid, parent: parent, group: group, foreground: foreground, command: line[start+1 : end], identity: fields[19], cpu: (user + system) / 100, memory: uint64(rss) * uint64(os.Getpagesize())}, true
 }
 
 func processAt(ctx context.Context, pid int) (process, bool) {

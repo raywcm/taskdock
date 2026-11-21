@@ -38,6 +38,7 @@ type Spec struct {
 	SchemaVersion  int       `json:"schema_version"`
 	ID             ID        `json:"id"`
 	Name           string    `json:"name"`
+	WindowName     string    `json:"window_name,omitempty"`
 	Command        []string  `json:"command"`
 	Dir            string    `json:"dir"`
 	CreatedAt      time.Time `json:"created_at"`
@@ -70,6 +71,10 @@ func (s Spec) ValidateStored() error {
 	}
 	if !utf8.ValidString(s.Name) || strings.TrimSpace(s.Name) == "" || len(s.Name) > 128 || strings.ContainsFunc(s.Name, unicode.IsControl) {
 		return errors.New("name must contain 1–128 bytes without control characters")
+	}
+	if s.WindowName != "" && (!utf8.ValidString(s.WindowName) || strings.TrimSpace(s.WindowName) == "" || len(s.WindowName) > 128 ||
+		strings.ContainsFunc(s.WindowName, func(r rune) bool { return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) })) {
+		return errors.New("window name must contain 1–128 bytes of printable text")
 	}
 	if len(s.Command) == 0 || s.Command[0] == "" {
 		return errors.New("command is required")
@@ -178,11 +183,12 @@ func (r Record) AwaitingBroker(now time.Time) bool {
 }
 
 type Resources struct {
-	CPUPercent   float64   `json:"cpu_percent"`
-	CPUAvailable bool      `json:"cpu_available"`
-	MemoryBytes  uint64    `json:"memory_bytes"`
-	ProcessCount int       `json:"process_count"`
-	SampledAt    time.Time `json:"sampled_at"`
+	CPUPercent        float64   `json:"cpu_percent"`
+	CPUAvailable      bool      `json:"cpu_available"`
+	MemoryBytes       uint64    `json:"memory_bytes"`
+	ForegroundCommand string    `json:"foreground_command,omitempty"`
+	ProcessCount      int       `json:"process_count"`
+	SampledAt         time.Time `json:"sampled_at"`
 }
 
 type Size struct {

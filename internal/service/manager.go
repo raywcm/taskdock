@@ -171,6 +171,10 @@ func (m *Manager) Resolve(ctx context.Context, ref string) (task.Record, error) 
 }
 
 func (m *Manager) Create(ctx context.Context, name string, argv []string, dir string, size task.Size, capture bool) (task.Record, error) {
+	return m.CreateWindow(ctx, name, "", argv, dir, size, capture)
+}
+
+func (m *Manager) CreateWindow(ctx context.Context, name, windowName string, argv []string, dir string, size task.Size, capture bool) (task.Record, error) {
 	id, err := task.NewID()
 	if err != nil {
 		return task.Record{}, err
@@ -178,7 +182,7 @@ func (m *Manager) Create(ctx context.Context, name string, argv []string, dir st
 	if name == "" {
 		name = "task-" + string(id[:8])
 	}
-	spec := task.Spec{SchemaVersion: 1, ID: id, Name: name, Command: argv, Dir: dir, Size: size, CaptureInitial: capture, CreatedAt: time.Now().UTC()}
+	spec := task.Spec{SchemaVersion: 1, ID: id, Name: name, WindowName: windowName, Command: argv, Dir: dir, Size: size, CaptureInitial: capture, CreatedAt: time.Now().UTC()}
 	if err := spec.Validate(); err != nil {
 		return task.Record{}, err
 	}

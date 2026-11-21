@@ -76,6 +76,7 @@ Shells and other terminal programs work the same way:
 
 ```sh
 tdock new -s work -- bash
+tdock new -s project -n review -- codex
 # Press Ctrl+Q to detach. The task keeps running.
 tdock
 # Select work and press Enter to reconnect.

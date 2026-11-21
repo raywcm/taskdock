@@ -19,8 +19,14 @@ Tasks accept names, full IDs or unique ID prefixes of at least four characters.
 
 ## Attached status row
 
-Fullscreen sessions show their name, short ID and process-tree RSS in a fixed
-bottom row. Memory and renames refresh every two seconds. The size owner gives
+The fixed bottom row shows `[session] 0:window*`, the application's pane title,
+process-tree RSS and the local time and date. Narrow terminals shorten the row.
+The window follows the foreground command, such as Bash → Codex → Bash.
+Use `tdock new -s work -n review -- bash` to pin the window label at startup.
+The session name stays usable with `tdock attach -t work` when either label changes.
+Codex can publish its conversation name as an OSC 0 or OSC 2 pane title.
+The row updates titles as they arrive and samples the foreground command and RSS
+every two seconds. The size owner gives
 the application one fewer row. Followers crop the owner's screen and keep their
 own status row. A follower shows the application's cursor when it falls inside
 the visible part of the screen. The status row follows the chosen theme and
@@ -45,7 +51,7 @@ blocked. Use Ctrl+Q or F12 to return to the list. Management commands such as
 
 | Command | Supported flags / aliases |
 | --- | --- |
-| `new-session` | `new`, `-s NAME`, `-c DIRECTORY`, `-d`, `-A` |
+| `new-session` | `new`, `-s NAME`, `-n WINDOW`, `-c DIRECTORY`, `-d`, `-A` |
 | `list-sessions` | `ls`, `--json`, `--history` |
 | `attach-session` | `attach`, `a`, `-t SESSION`, `-r`, `--shared`, `-d` / `--takeover` |
 | `rename-session` | `rename`, `-t SESSION NAME` |
@@ -61,7 +67,7 @@ session, detaches other controllers and keeps read-only viewers connected.
 Listing includes retained stopped records.
 
 Existing scripts should replace `list` with `ls`, `status` with `show`, `rm` with
-`delete`, and `new -n` with `new -s`. `show` always prints JSON; its redundant
+`delete`, and use `new -s` for a session name. `new -n` sets a window name. `show` always prints JSON; its redundant
 `--json` flag was removed. Use `stop` when you want to retain output history;
 `delete` removes a stopped record.
 

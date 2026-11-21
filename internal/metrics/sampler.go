@@ -11,10 +11,11 @@ import (
 )
 
 type process struct {
-	pid, parent int
-	identity    string
-	cpu         float64
-	memory      uint64
+	pid, parent, group, foreground int
+	command                        string
+	identity                       string
+	cpu                            float64
+	memory                         uint64
 }
 type Sampler struct {
 	mu       sync.Mutex
@@ -61,6 +62,9 @@ func (s *Sampler) Sample(ctx context.Context, records []task.Record) map[task.ID
 		}
 		oldRoot, knownRoot := s.previous[root.pid]
 		sample := task.Resources{SampledAt: now, CPUAvailable: valid && knownRoot && oldRoot.identity == root.identity}
+		// The pane's controlling terminal names its foreground process group.
+		// Prefer the group leader; background jobs and their children never name the window.
+		sample.ForegroundCommand = root.command
 		seen := map[int]bool{}
 		pending := []int{root.pid}
 		for len(pending) > 0 {
@@ -73,6 +77,9 @@ func (s *Sampler) Sample(ctx context.Context, records []task.Record) map[task.ID
 			p, ok := snapshot[pid]
 			if !ok {
 				continue
+			}
+			if p.pid == root.foreground && p.group == root.foreground {
+				sample.ForegroundCommand = p.command
 			}
 			sample.ProcessCount++
 			sample.MemoryBytes += p.memory

@@ -9,9 +9,12 @@ import (
 	"image/color"
 	"io"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unicode"
 
 	"github.com/charmbracelet/x/ansi"
@@ -32,7 +35,10 @@ type statusScreen struct {
 	size          task.Size
 	pixels        image.Point
 	name          string
-	id            string
+	windowName    string
+	command       string
+	title         string
+	clock         string
 	mode          string
 	rowStyle      string
 	memory        string
@@ -70,7 +76,10 @@ func (s *statusScreen) visibleArea() image.Rectangle {
 
 func newStatusScreen(size task.Size, spec task.Spec, send func(protocol.Frame) error) *statusScreen {
 	app := sessionSize(size, true)
-	s := &statusScreen{e: vtscreen.New(int(app.Cols), int(app.Rows)), size: size, name: spec.Name, id: string(spec.ID), memory: "—", dirty: true, repliesDone: make(chan struct{}), replayed: make(chan struct{})}
+	s := &statusScreen{e: vtscreen.New(int(app.Cols), int(app.Rows)), size: size, name: spec.Name, windowName: spec.WindowName, clock: time.Now().Format("15:04 02-Jan-06"), memory: "—", dirty: true, repliesDone: make(chan struct{}), replayed: make(chan struct{})}
+	if len(spec.Command) != 0 {
+		s.command = filepath.Base(spec.Command[0])
+	}
 	// Device replies use the same serialized input channel as keyboard input.
 	// Drain even after a send failure so a disconnected client cannot deadlock
 	// the emulator's synchronous reply pipe during teardown.
@@ -96,7 +105,19 @@ func newStatusScreen(size task.Size, spec task.Spec, send func(protocol.Frame) e
 		EnableMode:  func(mode ansi.Mode) { s.inputMode(mode, true) },
 		DisableMode: func(mode ansi.Mode) { s.inputMode(mode, false) },
 	})
+	// x/vt splits title payloads on every semicolon. Only the first
+	// semicolon separates the OSC number from the application-supplied text.
+	for _, code := range []int{0, 2} {
+		s.e.RegisterOscHandler(code, func(data []byte) bool {
+			_, title, ok := strings.Cut(string(data), ";")
+			if ok {
+				s.title = ansi.Truncate(statusText(title), 256, "…")
+			}
+			return true
+		})
+	}
 	s.e.RegisterEscHandler('c', func() bool {
+		s.title = ""
 		s.appMouse = vtscreen.MouseModes{}
 		s.capture.Reset()
 		s.viewport.Reset()
@@ -104,9 +125,19 @@ func newStatusScreen(size task.Size, spec task.Spec, send func(protocol.Frame) e
 	})
 	// Palette queries must reach the real terminal. Its replies pass through the
 	// existing input decoder, preserving light/dark detection and custom palettes.
-	for _, code := range []int{4, 10, 11, 12, 52, 104, 110, 111, 112} {
+	for _, code := range []int{4, 9, 10, 11, 12, 52, 104, 110, 111, 112, 777} {
 		s.e.RegisterOscHandler(code, func(data []byte) bool {
 			if s.live {
+				// OSC 9 also has command extensions on some hosts. Relay plain
+				// notifications only, including the OSC 777 notify form.
+				if code == 9 || code == 777 {
+					_, message, _ := strings.Cut(string(data), ";")
+					first, _, _ := strings.Cut(message, ";")
+					if _, err := strconv.Atoi(first); (code == 9 && err == nil) || (code == 777 && first != "notify") ||
+						len(data) > 4096 || statusText(message) != message {
+						return true
+					}
+				}
 				s.controls.WriteString("\x1b]" + string(data) + "\x1b\\")
 			}
 			return true
@@ -321,20 +352,14 @@ func (s *statusScreen) update(name string, resources *task.Resources) {
 			memory = fmt.Sprintf("%d KiB", resources.MemoryBytes/1024)
 		}
 	}
-	if s.name != name || s.memory != memory {
-		s.name, s.memory, s.dirty = name, memory, true
+	command := s.command
+	if resources != nil && resources.ForegroundCommand != "" {
+		command = resources.ForegroundCommand
 	}
-}
-
-func (s *statusScreen) label() string {
-	label := s.name
-	if len(s.id) >= 8 {
-		label += " [" + s.id[:8] + "]"
+	clock := time.Now().Format("15:04 02-Jan-06")
+	if s.name != name || s.command != command || s.memory != memory || s.clock != clock {
+		s.name, s.command, s.memory, s.clock, s.dirty = name, command, memory, clock, true
 	}
-	if s.mode != "" {
-		label += " · " + s.mode
-	}
-	return label
 }
 
 func (s *statusScreen) setAppearance(settings config.Settings, background color.Color) {
@@ -355,19 +380,45 @@ func (s *statusScreen) setAppearance(settings config.Settings, background color.
 	s.rowStyle, s.dirty = style.String(), true
 }
 
-func statusLine(name, memory string, width int) string {
-	name = strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
+func statusText(text string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Bidi_Control, r) || r == '\u2028' || r == '\u2029' {
 			return -1
 		}
 		return r
-	}, name)
-	right := " RSS " + memory + " "
-	if ansi.StringWidth(right)+4 > width {
-		return ansi.Truncate(" "+name, width, "…")
+	}, text)
+}
+
+func (s *statusScreen) statusLine(width int) string {
+	if width <= 0 {
+		return ""
 	}
-	left := ansi.Truncate(" "+name, width-ansi.StringWidth(right)-1, "…")
-	return left + strings.Repeat(" ", width-ansi.StringWidth(left)-ansi.StringWidth(right)) + right
+	window := s.windowName
+	if window == "" {
+		window = s.command
+	}
+	name := statusText(s.name)
+	window = statusText(window)
+	right := " RSS " + s.memory
+	if width >= 48 {
+		right += "  " + s.clock
+	}
+	room := width - ansi.StringWidth(right)
+	if room < 8 {
+		return ansi.Truncate("["+name+"]", width, "…")
+	}
+	if s.title != "" && room >= 18 {
+		right = " \"" + ansi.Truncate(s.title, room/2-2, "…") + "\"" + right
+	}
+	// Reserve the delimiters and active-window mark, even for long CJK names.
+	available := width - ansi.StringWidth(right) - 7
+	name = ansi.Truncate(name, max(1, available-min(available/2, ansi.StringWidth(window))), "…")
+	window = ansi.Truncate(window, max(1, available-ansi.StringWidth(name)), "…")
+	left := "[" + name + "] 0:" + window + "*"
+	if s.mode != "" && ansi.StringWidth(left+" · "+s.mode+right) < width {
+		left += " · " + s.mode
+	}
+	return left + strings.Repeat(" ", width-ansi.StringWidth(left+right)) + right
 }
 
 func (s *statusScreen) draw(ctx context.Context, fd int) error {
@@ -387,7 +438,7 @@ func (s *statusScreen) draw(ctx context.Context, fd int) error {
 		rows = append(rows, "")
 	}
 	if s.size.Rows > 1 {
-		rows = append(rows, s.rowStyle+statusLine(s.label(), s.memory, int(s.size.Cols))+"\x1b[0m")
+		rows = append(rows, s.rowStyle+s.statusLine(int(s.size.Cols))+"\x1b[0m")
 	}
 	var out strings.Builder
 	out.WriteString(s.controls.String())

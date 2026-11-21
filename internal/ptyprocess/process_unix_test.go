@@ -31,11 +31,24 @@ func TestSessionEnvironmentUsesTrueColorWithSSHXterm(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			want := append(slices.Clone(c.want), "TDOCK_SESSION=new")
+			want := append(slices.Clone(c.want), "TMUX_PANE=%tdock-new", "TDOCK_SESSION=new")
 			if got := sessionEnvironment(c.env, id); !slices.Equal(got, want) {
 				t.Fatalf("environment %q, want %q", got, want)
 			}
 		})
+	}
+}
+
+func TestPaneMarkerPreservesAnEnclosingMultiplexer(t *testing.T) {
+	for _, env := range [][]string{{"TMUX=/existing", "TMUX_PANE=%42"}, {"TMUX_PANE=%9"}, {"TMUX=/existing"}} {
+		want := append(slices.Clone(env), "TDOCK_SESSION=new")
+		if got := sessionEnvironment(env, "new"); !slices.Equal(got, want) {
+			t.Errorf("nested environment %q, want %q", got, want)
+		}
+	}
+	got := sessionEnvironment([]string{"TMUX=", "TMUX_PANE="}, "new")
+	if !slices.Equal(got, []string{"TMUX_PANE=%tdock-new", "TDOCK_SESSION=new"}) {
+		t.Fatalf("empty inherited markers: %q", got)
 	}
 }
 

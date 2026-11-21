@@ -66,11 +66,17 @@ func sessionEnvironment(env []string, id task.ID) []string {
 	result := make([]string, 0, len(env)+2)
 	var terminal string
 	colorConfigured := false
+	insideMux := false
 	for _, entry := range env {
 		key, value, _ := strings.Cut(entry, "=")
 		switch key {
 		case "TDOCK_SESSION":
 			continue
+		case "TMUX", "TMUX_PANE":
+			if value == "" {
+				continue
+			}
+			insideMux = true
 		case "TERM":
 			terminal = value
 		case "COLORTERM", "NO_COLOR", "FORCE_COLOR", "CLICOLOR", "CLICOLOR_FORCE":
@@ -82,6 +88,11 @@ func sessionEnvironment(env []string, id task.ID) []string {
 	// TaskDock viewport to apps that use xterm and check COLORTERM.
 	if terminal == "xterm-256color" && !colorConfigured {
 		result = append(result, "COLORTERM=truecolor")
+	}
+	// Codex accepts a pane marker independently of a tmux server. Use a
+	// namespaced, non-numeric target so a probe cannot select a real pane.
+	if !insideMux {
+		result = append(result, "TMUX_PANE=%tdock-"+string(id))
 	}
 	// The new session ID follows shells and subprocesses across state roots.
 	return append(result, "TDOCK_SESSION="+string(id))

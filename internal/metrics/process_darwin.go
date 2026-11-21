@@ -15,7 +15,7 @@ import (
 func processes(ctx context.Context) (map[int]process, error) {
 	ctx, cancel := context.WithTimeout(ctx, 700*time.Millisecond)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "/bin/ps", "-U", strconv.Itoa(os.Getuid()), "-o", "pid=,ppid=,time=,rss=,lstart=")
+	cmd := exec.CommandContext(ctx, "/bin/ps", "-U", strconv.Itoa(os.Getuid()), "-o", "pid=,ppid=,time=,rss=,lstart=,pgid=,tpgid=,ucomm=")
 	cmd.Env = append(os.Environ(), "LC_ALL=C")
 	data, err := cmd.Output()
 	if err != nil {
@@ -28,7 +28,7 @@ func parseProcesses(data []byte) map[int]process {
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
-		if len(fields) < 9 {
+		if len(fields) < 12 {
 			continue
 		}
 		pid, e1 := strconv.Atoi(fields[0])
@@ -38,7 +38,9 @@ func parseProcesses(data []byte) map[int]process {
 		if e1 != nil || e2 != nil || e3 != nil || e4 != nil {
 			continue
 		}
-		result[pid] = process{pid: pid, parent: parent, identity: strings.Join(fields[4:], " "), cpu: cpu, memory: memory * 1024}
+		group, _ := strconv.Atoi(fields[9])
+		foreground, _ := strconv.Atoi(fields[10])
+		result[pid] = process{pid: pid, parent: parent, group: group, foreground: foreground, command: strings.Join(fields[11:], " "), identity: strings.Join(fields[4:9], " "), cpu: cpu, memory: memory * 1024}
 	}
 	return result
 }
@@ -70,7 +72,7 @@ func cpuTime(value string) (float64, error) {
 func processAt(ctx context.Context, pid int) (process, bool) {
 	ctx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "/bin/ps", "-p", strconv.Itoa(pid), "-o", "pid=,ppid=,time=,rss=,lstart=")
+	cmd := exec.CommandContext(ctx, "/bin/ps", "-p", strconv.Itoa(pid), "-o", "pid=,ppid=,time=,rss=,lstart=,pgid=,tpgid=,ucomm=")
 	cmd.Env = append(os.Environ(), "LC_ALL=C")
 	data, err := cmd.Output()
 	if err != nil {

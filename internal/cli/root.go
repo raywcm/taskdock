@@ -195,7 +195,7 @@ func NewRoot() *cobra.Command {
 	list.Flags().BoolVar(&listJSON, "json", false, "print JSON")
 	list.Flags().BoolVar(&history, "history", false, "only completed tasks")
 	root.AddCommand(list, tmuxCommand())
-	var name, dir string
+	var name, windowName, dir string
 	var detached, newJSON, reuse bool
 	create := &cobra.Command{Use: "new-session [flags] [command [args...]]", Aliases: []string{"new"}, Short: "Start a persistent task (default: your shell)", Args: cobra.ArbitraryArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		m, err := open()
@@ -225,7 +225,7 @@ func NewRoot() *cobra.Command {
 		if interactive {
 			size = terminal.CurrentSize(input)
 		}
-		r, err := m.Create(cmd.Context(), name, args, cwd, size, interactive && !detached && !newJSON)
+		r, err := m.CreateWindow(cmd.Context(), name, windowName, args, cwd, size, interactive && !detached && !newJSON)
 		if err != nil {
 			var collision *service.NameConflictError
 			if !reuse || !errors.As(err, &collision) {
@@ -253,6 +253,7 @@ func NewRoot() *cobra.Command {
 		return err
 	}}
 	create.Flags().StringVarP(&name, "name", "s", "", "unique task name")
+	create.Flags().StringVarP(&windowName, "window-name", "n", "", "initial window name (default: follow the foreground command)")
 	create.Flags().StringVarP(&dir, "cwd", "c", "", "working directory")
 	create.Flags().BoolVarP(&detached, "detach", "d", false, "start in background")
 	create.Flags().BoolVar(&newJSON, "json", false, "start in background and print JSON")

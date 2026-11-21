@@ -460,7 +460,18 @@ def test_tui(h):
     with tempfile.TemporaryDirectory(prefix='tdock-tui-') as root:
         ui=Harness(root,h.binary)
         try:
+            ui.cli('settings','set','language','en')
             pid,fd=ui.spawn_tty()
+            def open_stop_dialog():
+                # The rename can reach disk just before the frontend handles
+                # its completion. 's' is idempotent once the dialog is open.
+                output = bytearray()
+                def visible():
+                    os.write(fd,b's')
+                    output.extend(drain(fd,.15))
+                    return b'Confirm stop' in output
+                until(visible)
+
             wait_output(fd,b'TaskDock')
             os.write(fd,b'n');drain(fd)
             os.write(fd,b'tui-created\r');wait_output(fd,b'tui-created [')
@@ -472,11 +483,11 @@ def test_tui(h):
             os.write(fd,b'\x1bOQ');drain(fd)
             os.write(fd,b'\x01\x0btui-renamed\r');drain(fd,.3)
             until(lambda:ui.show(created)['spec']['name']=='tui-renamed')
-            os.write(fd,b's');drain(fd,.2)
+            open_stop_dialog()
             assert ui.show('tui-renamed')['health']=='online'
-            os.write(fd,b'\x1b');drain(fd,.15)
+            os.write(fd,b'\x1b');wait_output(fd,b'Enter v')
             assert ui.show('tui-renamed')['health']=='online'
-            os.write(fd,b's');drain(fd,.15)
+            open_stop_dialog()
             os.write(fd,b'y');drain(fd,.2)
             ui.finished('tui-renamed');drain(fd,.3)
             os.write(fd,b'\x1b[C');drain(fd,.2)

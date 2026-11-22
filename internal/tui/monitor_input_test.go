@@ -19,6 +19,7 @@ func TestMonitorNavigationNeverReachesApplication(t *testing.T) {
 		{"\x11", "back"}, {"\x1b[113;5u", "back"},
 		{"\x1b[113;5:1u", "back"}, {"\x1b[27;5;113~", "back"},
 		{"\x1b[24~", "back"},
+		{"\x02d", "back"}, {"\x1b[98;5ud", "back"},
 	} {
 		for split := 0; split <= len(test.raw); split++ {
 			actions := make(chan monitorAction, 2)

@@ -188,8 +188,7 @@ func TestOrdinaryInputUnchanged(t *testing.T) {
 
 func TestRemovedDetachShortcutsRemainLiteral(t *testing.T) {
 	for _, input := range []string{
-		"\x02d", "\x02\x04", "\x1dd", "\x02\x02", "\x1d\x1d", "\x02", "\x1d",
-		"\x1b[98;5ud", "\x1b[98;5u\x1b[100;5u", "\x1b[27;5;98~\x1b[27;5;100~",
+		"\x1dd", "\x1d\x1d", "\x02", "\x1d",
 	} {
 		for split := 0; split <= len(input); split++ {
 			d := EscapeDecoder{}
@@ -293,5 +292,30 @@ func TestEscapeBufferIsBounded(t *testing.T) {
 	}
 	if len(d.escape) > inputEscapeLimit {
 		t.Fatal("unbounded input state")
+	}
+}
+
+func TestCtrlBDDetachesAndForwardsOthers(t *testing.T) {
+	for _, seq := range []string{"\x02d", "\x02\x04", "\x1b[98;5ud", "\x1b[98;5u\x1b[100;5u", "\x1b[98;5u\x1b[100u"} {
+		for split := 0; split <= len(seq); split++ {
+			d := EscapeDecoder{}
+			out1, done1 := d.Feed([]byte(seq[:split]))
+			out2, done2 := d.Feed([]byte(seq[split:]))
+			if len(out1) != 0 || len(out2) != 0 || !(done1 || done2) {
+				t.Fatalf("seq %q split %d: out=(%q,%q) done=(%v,%v)", seq, split, out1, out2, done1, done2)
+			}
+		}
+	}
+	// Ctrl+B followed by Ctrl+B forwards one Ctrl+B; Ctrl+B followed by another key forwards both.
+	d := EscapeDecoder{}
+	out, done := d.Feed([]byte("\x02\x02\x02x"))
+	if done || string(out) != "\x02\x02x" {
+		t.Fatalf("ctrl+b passthrough failed: out=%q done=%v", out, done)
+	}
+	// ForwardDetach passes Ctrl+B d through unchanged.
+	fd := EscapeDecoder{ForwardDetach: true}
+	out, done = fd.Feed([]byte("\x02d"))
+	if done || string(out) != "\x02d" {
+		t.Fatalf("ForwardDetach altered Ctrl+B d: out=%q done=%v", out, done)
 	}
 }

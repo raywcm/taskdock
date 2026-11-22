@@ -43,6 +43,8 @@ type EscapeDecoder struct {
 	Report func([]byte) bool
 	// Remaining contains bytes after a handled command, for pane switching.
 	Remaining         []byte
+	pending           uint16
+	prefix            []byte
 	escape            []byte
 	pasteEndRemaining string // unmatched suffix of the end marker while forwarding a paste
 }
@@ -144,7 +146,34 @@ func (d *EscapeDecoder) consume(raw []byte, key uint16) ([]byte, bool) {
 		if d.ForwardDetach {
 			return raw, false
 		}
+		d.pending, d.prefix = 0, nil
 		return nil, true
+	}
+	if d.pending != 0 {
+		if key == keyRelease && len(d.prefix)+len(raw) <= 256 {
+			d.prefix = append(d.prefix, raw...)
+			return nil, false
+		}
+		prefix, saved := d.pending, d.prefix
+		d.pending, d.prefix = 0, nil
+		if key == 'd' || (prefix == 0x02 && key == 0x04) {
+			return nil, true
+		}
+		if key == prefix {
+			if d.Transform != nil {
+				return d.Transform(saved), false
+			}
+			return saved, false
+		}
+		if d.Transform != nil {
+			raw = d.Transform(raw)
+		}
+		return append(saved, raw...), false
+	}
+	if !d.ForwardDetach && key == 0x02 {
+		d.pending = key
+		d.prefix = append([]byte(nil), raw...)
+		return nil, false
 	}
 	if d.Ignore != nil && d.Ignore(raw, key) {
 		return nil, false
@@ -213,11 +242,18 @@ func escapeKey(raw []byte) uint16 {
 		switch code {
 		case 13:
 			return KeyCtrlEnter
+		case 98:
+			return 0x02
+		case 100:
+			return 0x04
 		case 113:
 			return 0x11
 		case 102:
 			return 0x06
 		}
+	}
+	if code == 100 && mods == 0 {
+		return 'd'
 	}
 	return 0
 }
@@ -234,7 +270,12 @@ func (d *EscapeDecoder) flushEscape() []byte {
 }
 
 func (d *EscapeDecoder) Flush() []byte {
-	return d.flushEscape()
+	out := d.flushEscape()
+	if d.pending != 0 {
+		out = append(out, d.prefix...)
+		d.pending, d.prefix = 0, nil
+	}
+	return out
 }
 
 // PendingEscape reports a partial terminal sequence requiring a short timeout.

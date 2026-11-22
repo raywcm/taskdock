@@ -122,7 +122,7 @@ func (p *Process) Read(buf []byte) (int, error) {
 }
 
 func (p *Process) Write(buf []byte) (int, error) {
-	if err := p.master.SetWriteDeadline(time.Now().Add(2 * time.Second)); err != nil {
+	if err := p.master.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		return 0, err
 	}
 	return p.master.Write(buf)

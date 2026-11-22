@@ -525,13 +525,9 @@ func readTTYUntil(ctx context.Context, fd int, p []byte, deadline time.Time) (in
 	}
 }
 func writeTTY(ctx context.Context, fd int, p []byte) error {
-	deadline := time.Now().Add(2 * time.Second)
 	for len(p) > 0 {
 		if err := ctx.Err(); err != nil {
 			return err
-		}
-		if time.Now().After(deadline) {
-			return os.ErrDeadlineExceeded
 		}
 		ready, err := waitTTY(fd, unix.POLLOUT, 100)
 		if errors.Is(err, unix.EINTR) {

@@ -20,7 +20,10 @@ import (
 	"github.com/raywcm/taskdock/internal/task"
 )
 
-const Timeout = 2 * time.Second
+const (
+	Timeout      = 2 * time.Second
+	writeTimeout = 10 * time.Second
+)
 
 type RemoteError struct{ Code, Message string }
 
@@ -148,7 +151,7 @@ type Session struct {
 }
 
 func (s *Session) Send(frame protocol.Frame) error {
-	_ = s.Conn.SetWriteDeadline(time.Now().Add(Timeout))
+	_ = s.Conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 	return s.Encoder.Write(frame)
 }
 func (s *Session) Close() error { return s.Conn.Close() }

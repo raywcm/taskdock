@@ -131,7 +131,11 @@
     "search_hint": "Saisir pour filtrer · ↑↓/PgUp/PgDn choisir · Entrée confirmer · Esc retour",
     "sessions": "sessions",
     "move_session": "Déplacer la session",
-    "monitor_parser_error": "Impossible de rendre cette sortie. Esc : liste ; Entrée : session directe."
+    "monitor_parser_error": "Impossible de rendre cette sortie. Esc : liste ; Entrée : session directe.",
+    "agents_tab": "Agents",
+    "agents_preview_hint": "Entrée contrôler · ←/→ onglets · q quitter",
+    "agents_control_hint": "Ctrl+Q / F12 retour · Échap navigation",
+    "agents_unavailable": "Impossible d’ouvrir Agents"
   },
   "cli": {
     "disconnect existing controllers and take control": "déconnecter les contrôleurs et prendre le contrôle",

@@ -40,14 +40,24 @@ func Rows(e *vt.Emulator) []string {
 }
 
 func renderRow(width int, at func(int) *uv.Cell) string {
+	return renderRowSelected(width, at, nil)
+}
+
+func renderRowSelected(width int, at func(int) *uv.Cell, selected func(int) bool) string {
 	var line strings.Builder
 	style := ""
+	sel := false
 	for x := range width {
 		cell := at(x)
+		wantSel := selected != nil && selected(x)
 		if cell == nil {
-			if style != "" {
+			if style != "" || sel != wantSel {
 				line.WriteString("\x1b[0m")
 				style = ""
+				sel = wantSel
+				if sel {
+					line.WriteString("\x1b[7m")
+				}
 			}
 			line.WriteByte(' ')
 			continue
@@ -56,19 +66,18 @@ func renderRow(width int, at func(int) *uv.Cell) string {
 			continue
 		}
 		next := cell.Style.String()
-		if next != style {
+		if next != style || wantSel != sel {
 			line.WriteString("\x1b[0m")
 			line.WriteString(next)
+			if wantSel {
+				line.WriteString("\x1b[7m")
+			}
 			style = next
+			sel = wantSel
 		}
 		// Only generated SGR plus printable cell content leave this renderer.
 		// OSC title/clipboard/hyperlinks, DCS and terminal queries stay in the emulator.
-		content := strings.Map(func(r rune) rune {
-			if unicode.IsControl(r) {
-				return -1
-			}
-			return r
-		}, cell.Content)
+		content := sanitizeCellContent(cell.Content)
 		if content == "" {
 			content = " "
 		}
@@ -76,4 +85,13 @@ func renderRow(width int, at func(int) *uv.Cell) string {
 	}
 	line.WriteString("\x1b[0m")
 	return line.String()
+}
+
+func sanitizeCellContent(raw string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, raw)
 }

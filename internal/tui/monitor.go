@@ -24,6 +24,25 @@ type monitorOpened struct {
 func monitorTickCmd(generation uint64) tea.Cmd {
 	return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg { return monitorTick{generation: generation} })
 }
+
+func clipboardCmds(s *monitor.Session) []tea.Cmd {
+	if s == nil {
+		return nil
+	}
+	writes := s.DrainClipboard()
+	if len(writes) == 0 {
+		return nil
+	}
+	cmds := make([]tea.Cmd, 0, len(writes))
+	for _, w := range writes {
+		if w.Selection == "p" {
+			cmds = append(cmds, tea.SetPrimaryClipboard(w.Text))
+		} else {
+			cmds = append(cmds, tea.SetClipboard(w.Text))
+		}
+	}
+	return cmds
+}
 func (m model) monitorGeometry() (left, right, height int) {
 	width := max(1, m.width-4)
 	left = min(28, max(16, width/4))
@@ -36,6 +55,10 @@ func (m model) monitorSize() task.Size {
 	return task.Size{Rows: uint16(min(256, max(4, height))), Cols: uint16(min(512, max(20, width)))}
 }
 func (m model) appArea() uv.Rectangle {
+	if m.tab == tabAgents && m.width >= 12 && m.height >= 5 {
+		size := m.agentsSize()
+		return uv.Rect(2, m.agentsTop(), int(size.Cols), int(size.Rows))
+	}
 	if m.tab == tabRunning && m.monitoring && m.width >= 50 && m.height >= 12 {
 		left, right, height := m.monitorGeometry()
 		return uv.Rect(left+5, 5, right, height)

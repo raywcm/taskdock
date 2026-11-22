@@ -769,32 +769,39 @@ func TestMonitorSplitSelectionFailureAndReturn(t *testing.T) {
 }
 
 func TestThemesPreserveApplicationColors(t *testing.T) {
-	for _, theme := range config.Themes() {
-		for _, mode := range []string{"light", "dark"} {
-			m := readyModel(t)
-			m.settings.Theme, m.settings.ColorMode = theme, mode
-			m.width, m.height = 80, 24
-			frame := monitor.Frame{Ready: true, Rows: []string{
-				"PLAIN \x1b[7mREVERSE\x1b[0m \x1b[38;2;12;34;56mRGB\x1b[0m \x1b[38;5;202mINDEX\x1b[0m",
-			}}
-			left, _, _ := m.monitorGeometry()
-			x, y := left+5, 5
-			m.monitoring, m.monitorFrame = true, frame
-			line := strings.Split(m.View().Content, "\n")[y]
-			screen := uv.NewScreenBuffer(m.width, 1)
-			uv.NewStyledString(line).Draw(screen, uv.Rect(0, 0, m.width, 1))
-			cells := screen.Buffer.Lines[0]
-			for _, test := range []struct {
-				x     int
-				style uv.Style
-			}{{x, uv.Style{}}, {x + 6, uv.Style{Attrs: uv.AttrReverse}}, {x + 14, uv.Style{Fg: color.RGBA{R: 12, G: 34, B: 56, A: 255}}}, {x + 18, uv.Style{Fg: ansi.IndexedColor(202)}}} {
-				if !cells[test.x].Style.Equal(&test.style) {
-					t.Fatalf("%s/%s recolored app cell %d: %+v", theme, mode, test.x, cells[test.x].Style)
+	for _, pane := range []string{"monitor", "agents"} {
+		for _, theme := range config.Themes() {
+			for _, mode := range []string{"light", "dark"} {
+				m := readyModel(t)
+				m.settings.Theme, m.settings.ColorMode = theme, mode
+				m.width, m.height = 80, 24
+				frame := monitor.Frame{Ready: true, Rows: []string{
+					"PLAIN \x1b[7mREVERSE\x1b[0m \x1b[38;2;12;34;56mRGB\x1b[0m \x1b[38;5;202mINDEX\x1b[0m",
+				}}
+				left, _, _ := m.monitorGeometry()
+				x, y := left+5, 5
+				if pane == "agents" {
+					m.agentctlPath, m.tab, m.agents.frame = "/test/agentctl", tabAgents, frame
+					x, y = 2, m.agentsTop()
+				} else {
+					m.monitoring, m.monitorFrame = true, frame
 				}
-			}
-			for _, x := range []int{0, len(cells) - 1} {
-				if (cells[x].Style.Bg == nil) != (theme == "terminal") {
-					t.Fatalf("%s/%s drew the wrong gutter background at %d", theme, mode, x)
+				line := strings.Split(m.View().Content, "\n")[y]
+				screen := uv.NewScreenBuffer(m.width, 1)
+				uv.NewStyledString(line).Draw(screen, uv.Rect(0, 0, m.width, 1))
+				cells := screen.Buffer.Lines[0]
+				for _, test := range []struct {
+					x     int
+					style uv.Style
+				}{{x, uv.Style{}}, {x + 6, uv.Style{Attrs: uv.AttrReverse}}, {x + 14, uv.Style{Fg: color.RGBA{R: 12, G: 34, B: 56, A: 255}}}, {x + 18, uv.Style{Fg: ansi.IndexedColor(202)}}} {
+					if !cells[test.x].Style.Equal(&test.style) {
+						t.Fatalf("%s %s theme recolored app cell %d: %+v", pane, theme, test.x, cells[test.x].Style)
+					}
+				}
+				for _, x := range []int{0, len(cells) - 1} {
+					if (cells[x].Style.Bg == nil) != (theme == "terminal") {
+						t.Fatalf("%s %s theme drew the wrong gutter background at %d", pane, theme, x)
+					}
 				}
 			}
 		}

@@ -131,7 +131,11 @@
     "search_hint": "Escribir para filtrar · ↑↓/PgUp/PgDn elegir · Enter confirmar · Esc volver",
     "sessions": "sesiones",
     "move_session": "Mover sesión",
-    "monitor_parser_error": "No se puede mostrar esta salida. Esc: lista; Enter: sesión directa."
+    "monitor_parser_error": "No se puede mostrar esta salida. Esc: lista; Enter: sesión directa.",
+    "agents_tab": "Agents",
+    "agents_preview_hint": "Enter controlar · ←/→ pestañas · q salir",
+    "agents_control_hint": "Ctrl+Q / F12 volver · Esc navegar",
+    "agents_unavailable": "No se puede abrir Agents"
   },
   "cli": {
     "disconnect existing controllers and take control": "desconectar a los controladores y tomar el control",

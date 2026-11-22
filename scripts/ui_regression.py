@@ -74,7 +74,7 @@ def main():
             assert '› Settings' in terminal.display[tab_row] and terminal.current.buffer[tab_row][tab_x].bold
             assert 'live-work' not in text and 'completed-work' not in text
             assert 'RSS' not in text and '100%' not in text and 'metrics_hint' not in text
-            os.write(fd,b'\x1b[D\x1b[D') # Settings -> History -> Running
+            os.write(fd,b'\x1b[D\x1b[D') # Settings -> History -> Running, also with the optional Agents tab
             wait_view(fd,terminal,lambda text:'live-work' in text and 'Memory' in text)
             os.write(fd,b',') # Shortcut directly focuses settings editor
             wait_view(fd,terminal,lambda text:'Language' in text and 'Default tab' in text)

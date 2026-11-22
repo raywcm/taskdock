@@ -5,11 +5,13 @@ package monitor
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"image"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,6 +37,11 @@ type Frame struct {
 	Ready, Ended                    bool
 	Err                             error
 }
+type ClipboardWrite struct {
+	Selection string
+	Text      string
+}
+
 type Session struct {
 	mu         sync.RWMutex
 	frame      Frame
@@ -48,6 +55,9 @@ type Session struct {
 	viewport   vtscreen.Viewport
 	mouse      vtscreen.MouseModes
 	capture    vtscreen.MouseCapture
+	selection  vtscreen.Selection
+	grid       []uv.Line
+	clipboard  []ClipboardWrite
 }
 
 var ErrEmulation = errors.New("terminal preview parser failed")
@@ -74,6 +84,47 @@ func (s *Session) supervise(run func()) {
 	run()
 }
 func (s *Session) Snapshot() Frame { s.mu.RLock(); defer s.mu.RUnlock(); return s.frame }
+
+func (s *Session) DrainClipboard() []ClipboardWrite {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.clipboard) == 0 {
+		return nil
+	}
+	writes := s.clipboard
+	s.clipboard = nil
+	return writes
+}
+
+func (s *Session) queueClipboard(w ClipboardWrite) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.queueClipboardLocked(w)
+}
+
+func (s *Session) queueClipboardLocked(w ClipboardWrite) {
+	const maxQueuedClipboard = 16
+	if len(s.clipboard) >= maxQueuedClipboard {
+		s.clipboard = append(s.clipboard[:0], s.clipboard[1:]...)
+	}
+	s.clipboard = append(s.clipboard, w)
+}
+
+func parseOSC52(data []byte) (ClipboardWrite, bool) {
+	code, rest, ok := strings.Cut(string(data), ";")
+	if !ok || code != "52" {
+		return ClipboardWrite{}, false
+	}
+	sel, payload, ok := strings.Cut(rest, ";")
+	if !ok || payload == "?" || len(payload) > 2*1024*1024 {
+		return ClipboardWrite{}, false
+	}
+	decoded, err := base64.RawStdEncoding.DecodeString(strings.TrimRight(payload, "="))
+	if err != nil {
+		return ClipboardWrite{}, false
+	}
+	return ClipboardWrite{Selection: sel, Text: string(decoded)}, true
+}
 func (s *Session) Resize(size task.Size) {
 	if size.Validate() != nil {
 		return
@@ -105,9 +156,12 @@ func (s *Session) Input(data []byte) error {
 	}
 	s.mu.Lock()
 	conn, frame := s.connection, s.frame
-	if len(data) > 0 && frame.Scrollable {
-		s.followLive = true
-		s.scroll = 0
+	if len(data) > 0 {
+		s.selection.Clear()
+		if frame.Scrollable {
+			s.followLive = true
+			s.scroll = 0
+		}
 	}
 	s.mu.Unlock()
 	if conn == nil || frame.Ended || frame.Err != nil {
@@ -135,8 +189,27 @@ func (s *Session) MouseInput(event uv.MouseEvent, area image.Rectangle) []byte {
 	area = area.Intersect(uv.Rect(area.Min.X, area.Min.Y, frame.Width, frame.Height))
 	if frame.Scrollable {
 		mouse := event.Mouse()
-		if image.Pt(mouse.X, mouse.Y).In(area) {
-			s.scroll = min(vtscreen.ScrollbackLimit, max(-vtscreen.ScrollbackLimit, s.scroll+vtscreen.WheelLines(mouse.Button)))
+		if lines := vtscreen.WheelLines(mouse.Button); lines != 0 {
+			if image.Pt(mouse.X, mouse.Y).In(area) {
+				s.selection.Clear()
+				s.scroll = min(vtscreen.ScrollbackLimit, max(-vtscreen.ScrollbackLimit, s.scroll+lines))
+			}
+			return nil
+		}
+		changed, copyReady := s.selection.HandleMouse(event, area)
+		if copyReady && len(s.grid) > 0 {
+			text := s.selection.Text(frame.Width, frame.Height, func(x, y int) *uv.Cell {
+				if y < 0 || y >= len(s.grid) || x < 0 || x >= len(s.grid[y]) {
+					return nil
+				}
+				return &s.grid[y][x]
+			})
+			if text != "" {
+				s.queueClipboardLocked(ClipboardWrite{Selection: "c", Text: text})
+			}
+		}
+		if changed && len(s.grid) > 0 {
+			s.frame.Rows = vtscreen.RenderGrid(frame.Width, s.grid, &s.selection)
 		}
 		return nil
 	}
@@ -160,11 +233,16 @@ func newScreen(width, height int) *vt.Emulator {
 func screenFrame(e *vt.Emulator, viewport *vtscreen.Viewport) Frame {
 	return Frame{Rows: viewport.Rows(e), Width: e.Width(), Height: e.Height(), CursorX: e.CursorPosition().X, CursorY: e.CursorPosition().Y, CursorHidden: e.CursorHidden() || viewport.Scrolled(), Alternate: e.IsAltScreen(), Ready: true}
 }
+
 func (s *Session) publish(e *vt.Emulator, err error, ended bool) {
 	scrollable := !e.IsAltScreen() && s.mouse.Tracking == 0 && e.ScrollbackLen() > 0
 	s.mu.Lock()
 	lines, follow := s.scroll, s.followLive
 	s.scroll, s.followLive = 0, false
+	if !scrollable || follow || lines != 0 {
+		s.selection.Clear()
+	}
+	sel := s.selection
 	s.mu.Unlock()
 	if follow {
 		s.viewport.Reset()
@@ -174,12 +252,23 @@ func (s *Session) publish(e *vt.Emulator, err error, ended bool) {
 	} else {
 		s.viewport.Reset()
 	}
-	frame := screenFrame(e, &s.viewport)
+	grid := s.viewport.Grid(e)
+	frame := Frame{
+		Rows:         vtscreen.RenderGrid(e.Width(), grid, &sel),
+		Width:        e.Width(),
+		Height:       e.Height(),
+		CursorX:      e.CursorPosition().X,
+		CursorY:      e.CursorPosition().Y,
+		CursorHidden: e.CursorHidden() || s.viewport.Scrolled(),
+		Alternate:    e.IsAltScreen(),
+		Ready:        true,
+	}
 	frame.Err, frame.Ended, frame.Scrollable, frame.Mouse = err, ended, scrollable, s.mouse
 	s.mu.Lock()
 	if frame.Mouse != s.frame.Mouse {
 		s.capture.Reset()
 	}
+	s.grid = grid
 	s.frame = frame
 	s.mu.Unlock()
 }
@@ -247,6 +336,7 @@ func (s *Session) run(ctx context.Context, repository *store.JSON, r task.Record
 	if ctx.Err() != nil {
 		return
 	}
+	live := false
 	e := newScreen(width, height)
 	defer e.Close()
 	e.SetCallbacks(vt.Callbacks{
@@ -257,6 +347,14 @@ func (s *Session) run(ctx context.Context, repository *store.JSON, r task.Record
 		s.mouse = vtscreen.MouseModes{}
 		s.viewport.Reset()
 		return false
+	})
+	e.RegisterOscHandler(52, func(data []byte) bool {
+		if live {
+			if w, ok := parseOSC52(data); ok {
+				s.queueClipboard(w)
+			}
+		}
+		return true
 	})
 	if r.Runtime == nil {
 		s.publish(e, errors.New("task has not started"), false)
@@ -376,6 +474,7 @@ func (s *Session) run(ctx context.Context, repository *store.JSON, r task.Record
 		s.publish(e, err, false)
 		return
 	}
+	live = true
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	needsSize := true

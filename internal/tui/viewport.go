@@ -53,7 +53,7 @@ func (m *model) scrollableText() (*textViewport, uv.Rectangle) {
 		view, height = &m.tmux.textViewport, m.height-tmuxHeaderRows
 	}
 	width := m.width - 4
-	if view != nil && !m.tooSmall() && (view.maxWidth > width || len(view.lines) > height) {
+	if view != nil && !m.tooSmall() && m.tab != tabAgents && (view.maxWidth > width || len(view.lines) > height) {
 		return view, uv.Rect(2, 3, width, height)
 	}
 	return nil, uv.Rectangle{}

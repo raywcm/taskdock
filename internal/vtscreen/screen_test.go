@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 )
@@ -114,5 +115,32 @@ func TestViewportKeepsEarlierRowsWhileOutputContinues(t *testing.T) {
 	viewport.Scroll(e, -3)
 	if viewport.Scrolled() || !strings.Contains(viewport.Rows(e)[2], "live") {
 		t.Fatal("scrolling down did not return to the live screen")
+	}
+}
+
+func TestSelectionDragExtractsTextAndHighlights(t *testing.T) {
+	e := New(20, 3)
+	defer e.Close()
+	e.WriteString("hello world\r\n中文测试 line\r\nthird")
+	area := image.Rect(5, 2, 25, 5)
+	var sel Selection
+	if changed, copyReady := sel.HandleMouse(DecodeMouse([]byte("\x1b[<0;12;3M")), area); !changed || copyReady {
+		t.Fatalf("unexpected click state: changed=%v copyReady=%v", changed, copyReady)
+	}
+	if changed, copyReady := sel.HandleMouse(DecodeMouse([]byte("\x1b[<32;12;4M")), area); !changed || copyReady {
+		t.Fatalf("unexpected drag state: changed=%v copyReady=%v", changed, copyReady)
+	}
+	if changed, copyReady := sel.HandleMouse(DecodeMouse([]byte("\x1b[<0;12;4m")), area); !changed || !copyReady {
+		t.Fatalf("unexpected release state: changed=%v copyReady=%v", changed, copyReady)
+	}
+	var viewport Viewport
+	got := sel.Text(e.Width(), e.Height(), func(x, y int) *uv.Cell { return viewport.CellAt(e, x, y) })
+	want := "world\n中文测试"
+	if got != want {
+		t.Fatalf("selected text: got %q, want %q", got, want)
+	}
+	rows := viewport.RowsWithSelection(e, &sel)
+	if !strings.Contains(rows[0], "\x1b[7m") || !strings.Contains(rows[1], "\x1b[7m") {
+		t.Fatalf("selection highlight missing: %q", rows)
 	}
 }

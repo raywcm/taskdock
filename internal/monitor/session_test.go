@@ -215,3 +215,45 @@ func TestReplayLogFromEnvironment(t *testing.T) {
 		}
 	}
 }
+
+func TestOSC52ParsingAndDrain(t *testing.T) {
+	if w, ok := parseOSC52([]byte("52;c;SGVsbG8=")); !ok || w.Selection != "c" || w.Text != "Hello" {
+		t.Fatalf("valid OSC 52 failed: %+v %v", w, ok)
+	}
+	if w, ok := parseOSC52([]byte("52;p;SGVsbG8")); !ok || w.Selection != "p" || w.Text != "Hello" {
+		t.Fatalf("unpadded OSC 52 failed: %+v %v", w, ok)
+	}
+	for _, bad := range []string{"52;c;?", "52;c;***", "11;?", "52"} {
+		if _, ok := parseOSC52([]byte(bad)); ok {
+			t.Fatalf("expected %q to be rejected", bad)
+		}
+	}
+	var s Session
+	s.queueClipboard(ClipboardWrite{Selection: "c", Text: "copied"})
+	got := s.DrainClipboard()
+	if len(got) != 1 || got[0].Text != "copied" {
+		t.Fatalf("unexpected drained clipboard: %+v", got)
+	}
+	if len(s.DrainClipboard()) != 0 {
+		t.Fatal("clipboard was not drained")
+	}
+}
+
+func TestScrollableMouseDragCopiesToClipboard(t *testing.T) {
+	e := newScreen(20, 3)
+	defer e.Close()
+	e.WriteString("line1\r\nhello world\r\nline3\r\nline4")
+	var s Session
+	s.publish(e, nil, false)
+	if !s.Snapshot().Scrollable {
+		t.Fatal("expected scrollable frame")
+	}
+	area := image.Rect(2, 1, 22, 4)
+	s.MouseInput(vtscreen.DecodeMouse([]byte("\x1b[<0;3;2M")), area)
+	s.MouseInput(vtscreen.DecodeMouse([]byte("\x1b[<32;7;2M")), area)
+	s.MouseInput(vtscreen.DecodeMouse([]byte("\x1b[<0;7;2m")), area)
+	got := s.DrainClipboard()
+	if len(got) != 1 || got[0].Text != "hello" {
+		t.Fatalf("unexpected drag copy: %+v", got)
+	}
+}

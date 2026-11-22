@@ -28,6 +28,7 @@ type monitorAction struct {
 // Control input is intercepted before key parsing, preserving opaque bytes,
 // bracketed paste, Unicode and Ctrl+C/D without a second competing reader.
 type monitorInput struct {
+	agents bool
 	*os.File
 	mu                     sync.Mutex
 	enabled, armed, closed bool
@@ -49,9 +50,12 @@ func (r *monitorInput) resetLocked() {
 		r.timer.Stop()
 		r.timer = nil
 	}
-	r.decoder = terminal.EscapeDecoder{Command: func(raw []byte, key uint16) bool {
-		command := monitorNavigation(raw)
-		if key == 0x06 {
+	r.decoder = terminal.EscapeDecoder{ForwardDetach: r.agents, Command: func(raw []byte, key uint16) bool {
+		command := ""
+		if !r.agents {
+			command = monitorNavigation(raw)
+		}
+		if key == 0x06 && !r.agents {
 			command = "search"
 		}
 		if command == "" {
@@ -59,7 +63,7 @@ func (r *monitorInput) resetLocked() {
 		}
 		r.commands = append(r.commands, command)
 		return true
-	}, Ignore: monitorIgnoredKey, Transform: r.monitorInputKey, Report: func(raw []byte) bool {
+	}, Ignore: func(raw []byte, key uint16) bool { return !r.agents && monitorIgnoredKey(raw, key) }, Transform: r.monitorInputKey, Report: func(raw []byte) bool {
 		if bg := terminal.BackgroundReply(raw); bg != nil {
 			if r.notify != nil {
 				r.notify(monitorAction{kind: "background", background: tea.BackgroundColorMsg{Color: bg}})
@@ -81,15 +85,21 @@ func (r *monitorInput) monitorInputKey(raw []byte) []byte {
 	if event := vtscreen.DecodeMouse(raw); event != nil && r.target != nil {
 		return r.target.MouseInput(event, r.scrollArea)
 	}
+	if r.agents {
+		return raw
+	}
 	return monitorApplicationKey(raw)
 }
 func (r *monitorInput) Arm(armed bool) { r.mu.Lock(); r.armed = armed; r.mu.Unlock() }
-func (r *monitorInput) Begin() {
+func (r *monitorInput) BeginAgents()   { r.begin(true) }
+func (r *monitorInput) Begin()         { r.begin(false) }
+func (r *monitorInput) begin(agents bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.target != nil {
 		r.pending = nil
 	}
+	r.agents = agents
 	r.target = nil
 	r.enabled = true
 	r.resetLocked()
@@ -98,6 +108,7 @@ func (r *monitorInput) Disable() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.enabled = false
+	r.agents = false
 	r.target = nil
 	r.pending = nil
 	r.resetLocked()

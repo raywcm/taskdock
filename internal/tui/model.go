@@ -29,9 +29,11 @@ const (
 	tabCount
 )
 
+const tabAgents = tabCount
+
 const settingsCount = 7
 
-var tabNames = [...]string{"running", "stop", "settings"}
+var tabNames = [...]string{"running", "stop", "settings", "Agents"}
 
 type Backend interface {
 	service.TaskList
@@ -52,6 +54,7 @@ type State struct {
 	Monitor  bool
 }
 type Options struct {
+	AgentctlPath string
 	Version      string
 	State        State
 	Conflict     *task.Spec
@@ -78,6 +81,8 @@ type tick time.Time
 type exitRequested struct{}
 
 type model struct {
+	agents                               agentsPane
+	agentctlPath                         string
 	shortIDs                             map[task.ID]string
 	tmux                                 tmuxBrowser
 	ctx                                  context.Context
@@ -136,7 +141,7 @@ func newModel(ctx context.Context, catalog Backend, notice error, options Option
 	inputStyle.Focused.Prompt = inputStyle.Focused.Text
 	inputStyle.Cursor.Color = nil
 	edit.SetStyles(inputStyle)
-	m := model{ctx: ctx, catalog: catalog, input: edit, width: 80, height: 24, settings: settings, err: notice, version: options.Version, initial: options.State.Selected, now: time.Now()}
+	m := model{agentctlPath: options.AgentctlPath, ctx: ctx, catalog: catalog, input: edit, width: 80, height: 24, settings: settings, err: notice, version: options.Version, initial: options.State.Selected, now: time.Now()}
 	tab := options.State.Tab
 	if tab == "" {
 		tab = settings.DefaultTab
@@ -210,7 +215,7 @@ func refreshedCursor(rows []task.Record, id task.ID, cursor int) int {
 }
 
 func (m model) current() (task.Record, bool) {
-	if m.tab == tabSettings {
+	if m.tab >= tabSettings {
 		return task.Record{}, false
 	}
 	rows := m.rows(m.tab)
@@ -233,10 +238,10 @@ func (m *model) selectTab(tab int) {
 	if m.busy {
 		return
 	}
-	if m.tab != tabSettings {
+	if m.tab < tabSettings {
 		m.lastTaskTab = m.tab
 	}
-	m.tab = (tab + tabCount) % tabCount
+	m.tab = (tab + m.tabTotal()) % m.tabTotal()
 	if m.tab != tabRunning {
 		m.monitoring = false
 		m.closeMonitor()
@@ -282,9 +287,16 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	next, cmd := m.update(msg)
 	updated := next.(model)
+	if updated.tab != tabAgents && m.tab == tabAgents {
+		updated.closeAgents()
+	}
+	if updated.tab == tabAgents && m.tab != tabAgents {
+		cmd = tea.Batch(cmd, updated.openAgents())
+	}
+
 	if updated.monitorInput != nil {
 		updated.monitorInput.Arm(updated.tab == tabRunning && !updated.monitoring && updated.mode == "" && !updated.busy && !updated.tooSmall())
-		if updated.monitoring {
+		if updated.monitoring || updated.tab == tabAgents {
 			updated.monitorInput.SetScrollArea(updated.appArea())
 		}
 	}
@@ -310,6 +322,38 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case agentsOpened:
+		if m.tab != tabAgents || msg.generation != m.agents.generation {
+			if msg.session != nil {
+				msg.session.Close()
+			}
+			return m, nil
+		}
+		m.agents.session = msg.session
+		m.agents.frame.Err = msg.err
+		if msg.session != nil {
+			msg.session.Resize(m.agentsSize())
+			return m, agentsTickCmd(m.agents.generation)
+		}
+		return m, nil
+	case agentsTick:
+		if m.tab != tabAgents || uint64(msg) != m.agents.generation {
+			return m, nil
+		}
+		var clipCmds []tea.Cmd
+		if m.agents.session != nil {
+			m.agents.frame = m.agents.session.Snapshot()
+			clipCmds = clipboardCmds(m.agents.session)
+		}
+		if m.agents.frame.Err != nil || m.agents.frame.Ended {
+			m.agents.control = false
+			if m.monitorInput != nil {
+				m.monitorInput.Disable()
+			}
+			return m, tea.Batch(clipCmds...)
+		}
+		return m, tea.Batch(append(clipCmds, agentsTickCmd(m.agents.generation))...)
+
 	case tmuxResult:
 		return m.updateTmux(msg)
 	case tmuxRefresh:
@@ -324,6 +368,20 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case monitorAction:
+		if m.tab == tabAgents && m.agents.control {
+			if msg.kind == "background" {
+				return m.update(msg.background)
+			}
+			if msg.session != nil && msg.session != m.agents.session {
+				return m, nil
+			}
+			m.agents.control = false
+			if m.monitorInput != nil {
+				m.monitorInput.Disable()
+			}
+			m.err = msg.err
+			return m, nil
+		}
 		if msg.kind == "background" {
 			return m.update(msg.background)
 		}
@@ -409,14 +467,16 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.monitoring || msg.generation != m.monitorGeneration {
 			return m, nil
 		}
+		var clipCmds []tea.Cmd
 		if m.monitorSession != nil {
 			m.monitorFrame = m.monitorSession.Snapshot()
+			clipCmds = clipboardCmds(m.monitorSession)
 			var remote *ipc.RemoteError
 			if errors.As(m.monitorFrame.Err, &remote) && remote.Code == "taken_over" {
 				m.monitoring = false
 				m.closeMonitor()
 				m.message = m.locale().Text("taken_over")
-				return m, m.startLoad()
+				return m, tea.Batch(append(clipCmds, m.startLoad())...)
 			}
 			if m.monitorFrame.Err != nil && m.monitorInput != nil {
 				m.monitorInput.Disable()
@@ -424,10 +484,10 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.monitorFrame.Ended {
 				m.monitoring = false
 				m.closeMonitor()
-				return m, m.startLoad()
+				return m, tea.Batch(append(clipCmds, m.startLoad())...)
 			}
 		}
-		return m, monitorTickCmd(m.monitorGeneration)
+		return m, tea.Batch(append(clipCmds, monitorTickCmd(m.monitorGeneration))...)
 	case loaded:
 		if msg.generation != m.generation {
 			return m, nil
@@ -458,7 +518,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.shortIDs = task.ShortIDs(m.tasks)
 		m.now = time.Now()
-		if m.initial != "" && m.tab != tabSettings {
+		if m.initial != "" && m.tab < tabSettings {
 			ids[m.tab] = m.initial
 			m.initial = ""
 		}
@@ -513,6 +573,9 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tmux.resize(msg.Width-4, m.height-tmuxHeaderRows, msg.Height-tmuxHeaderRows)
 		}
 		m.width, m.height = max(1, msg.Width), max(1, msg.Height)
+		if m.agents.session != nil {
+			m.agents.session.Resize(m.agentsSize())
+		}
 		if m.mode == "search" {
 			m.input.SetWidth(max(4, min(68, m.width-12)))
 		} else {
@@ -540,6 +603,37 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	case tea.KeyPressMsg:
+		if m.tab == tabAgents {
+			k := msg.String()
+			if m.agents.control {
+				if m.monitorInput != nil {
+					if raw := prefetchedMonitorKey(msg); len(raw) > 0 {
+						m.monitorInput.forward(raw)
+					}
+				}
+				return m, nil
+			}
+			switch k {
+			case "enter":
+				if m.agents.frame.Ended || m.agents.frame.Err != nil {
+					return m, m.openAgents()
+				}
+				if m.agents.session != nil && m.agents.frame.Ready && m.monitorInput != nil {
+					m.agents.control = true
+					m.monitorInput.BeginAgents()
+					m.monitorInput.SetTarget(m.agents.session)
+				}
+			case "left", "shift+tab":
+				m.selectTab(m.tab - 1)
+			case "right", "tab":
+				m.selectTab(m.tab + 1)
+			case "f5":
+				return m, m.openAgents()
+			case "q", "esc", "ctrl+c":
+				return m.quit()
+			}
+			return m, nil
+		}
 		k := msg.String()
 		if m.tooSmall() {
 			if k == "q" || k == "ctrl+c" {
@@ -987,6 +1081,7 @@ func Run(ctx context.Context, catalog Backend, input io.Reader, output io.Writer
 		}
 		final.closeMonitor()
 		final.closeHistory()
+		final.closeAgents()
 	}
 	if errors.Is(err, tea.ErrInterrupted) ||
 		(errors.Is(err, tea.ErrProgramKilled) && errors.Is(err, context.Canceled)) {
@@ -996,4 +1091,11 @@ func Run(ctx context.Context, catalog Backend, input io.Reader, output io.Writer
 		return Selection{}, err
 	}
 	return final.selected, nil
+}
+
+func (m model) tabTotal() int {
+	if m.agentctlPath != "" {
+		return tabCount + 1
+	}
+	return tabCount
 }

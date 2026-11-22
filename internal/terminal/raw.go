@@ -30,7 +30,9 @@ func WithRaw(tty *os.File, run func() error) (err error) {
 // EscapeDecoder handles detach keys without decoding application output.
 // Unknown input is returned unchanged; incomplete escape sequences are bounded.
 type EscapeDecoder struct {
-	Disable bool
+	// ForwardDetach lets an embedded manager handle its own terminal return keys.
+	ForwardDetach bool
+	Disable       bool
 	// Command recognizes additional manager keys outside bracketed paste.
 	Command func([]byte, uint16) bool
 	// Ignore drops reserved keys without ending the current input route.
@@ -139,6 +141,9 @@ func (d *EscapeDecoder) consume(raw []byte, key uint16) ([]byte, bool) {
 		return nil, false
 	}
 	if key == 0x11 || key == keyF12 {
+		if d.ForwardDetach {
+			return raw, false
+		}
 		return nil, true
 	}
 	if d.Ignore != nil && d.Ignore(raw, key) {

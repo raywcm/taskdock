@@ -258,3 +258,23 @@ func TestColorModeFallback(t *testing.T) {
 		}
 	}
 }
+
+func TestScrollMouseDragEmitsOSC52(t *testing.T) {
+	s := newStatusScreen(task.Size{Cols: 20, Rows: 4}, task.Spec{Name: "inline"}, nil)
+	defer s.close()
+	s.live = true
+	if err := s.feed([]byte("line1\r\nhello world\r\nline3\r\nline4")); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	s.updateMouse(&out)
+	if !s.scrollMouse {
+		t.Fatal("expected scrollMouse to be active")
+	}
+	s.mouseInput([]byte("\x1b[<0;1;1M"))
+	s.mouseInput([]byte("\x1b[<32;5;1M"))
+	s.mouseInput([]byte("\x1b[<0;5;1m"))
+	if !strings.Contains(s.controls.String(), "\x1b]52;c;aGVsbG8=\x1b\\") {
+		t.Fatalf("expected OSC 52 clipboard write, got %q", s.controls.String())
+	}
+}

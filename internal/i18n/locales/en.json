@@ -131,7 +131,11 @@
     "search_hint": "Type to filter · ↑↓/PgUp/PgDn select · Enter confirm · Esc back",
     "sessions": "sessions",
     "move_session": "Move selected session",
-    "monitor_parser_error": "Cannot render this output. Esc: list; Enter: native session."
+    "monitor_parser_error": "Cannot render this output. Esc: list; Enter: native session.",
+    "agents_tab": "Agents",
+    "agents_preview_hint": "Enter control · ←/→ tabs · q quit",
+    "agents_control_hint": "Ctrl+Q / F12 back · Esc navigate",
+    "agents_unavailable": "Unable to open Agents"
   },
   "cli": {
     "disconnect existing controllers and take control": "disconnect existing controllers and take control",

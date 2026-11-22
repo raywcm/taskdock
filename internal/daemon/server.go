@@ -53,6 +53,7 @@ type server struct {
 	slots    chan struct{}
 	attachMu sync.Mutex // Serializes lease changes with PTY input and resizing.
 	size     task.Size
+	draft    inputDraft
 }
 
 func Run(ctx context.Context, state string, id task.ID, ready io.Writer) (result error) {
@@ -398,7 +399,7 @@ func (s *server) serve(conn *net.UnixConn) {
 	size := s.size
 	welcome := protocol.WelcomeMessage{
 		TaskID: current.TaskID, InstanceID: current.InstanceID, Replay: replay, Size: &size,
-		Capabilities: []string{protocol.AttachModesCapability, protocol.OutputByteQueueCapability},
+		Capabilities: []string{protocol.AttachModesCapability, protocol.OutputByteQueueCapability, protocol.GuardedInputCapability, protocol.IdleInputCapability},
 	}
 	if sub != nil {
 		welcome.AttachMode = mode
@@ -489,6 +490,42 @@ func (s *server) serve(conn *net.UnixConn) {
 			return
 		}
 		switch frame.Kind {
+		case protocol.GuardedInput:
+			var request protocol.GuardedInputMessage
+			checker, ok := s.process.(interface{ ForegroundPID(int) bool })
+			if !ok || ipc.Decode(frame.Payload, &request) != nil {
+				reject("invalid_request", errors.New("invalid guarded input"))
+				return
+			}
+			s.attachMu.Lock()
+			allowed := (sub == nil || s.hub.CanInput(sub)) && checker.ForegroundPID(request.PID)
+			if request.Idle && s.draft.pending {
+				s.attachMu.Unlock()
+				reject("input_pending", errors.New("input draft is pending; submit or cancel it before delivery"))
+				return
+			}
+			if allowed {
+				for data := request.Data; len(data) > 0; {
+					count, writeErr := s.process.Write(data)
+					if writeErr != nil || count == 0 {
+						err = errors.Join(writeErr, io.ErrShortWrite)
+						break
+					}
+					data = data[count:]
+				}
+			}
+			s.attachMu.Unlock()
+			if !allowed {
+				reject("process_changed", errors.New("native program is no longer in the foreground"))
+				return
+			}
+			if err != nil {
+				reject("input_failed", err)
+				return
+			}
+			if wire.Send(protocol.Frame{Kind: protocol.Pong}) != nil {
+				return
+			}
 		case protocol.Input:
 			if sub == nil {
 				reject("invalid_request", errors.New("control connection cannot send input"))
@@ -497,6 +534,7 @@ func (s *server) serve(conn *net.UnixConn) {
 			s.attachMu.Lock()
 			allowed := s.hub.CanInput(sub)
 			if allowed {
+				s.draft.feed(frame.Payload)
 				for p := frame.Payload; len(p) > 0; {
 					n, writeErr := s.process.Write(p)
 					if writeErr != nil || n == 0 {

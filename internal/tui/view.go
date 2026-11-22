@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/raywcm/taskdock/internal/config"
 	"github.com/raywcm/taskdock/internal/ipc"
+	"github.com/raywcm/taskdock/internal/monitor"
 	"github.com/raywcm/taskdock/internal/task"
 	"github.com/raywcm/taskdock/internal/terminal"
 )
@@ -83,22 +84,26 @@ func (m model) header(width int) string {
 }
 func (m model) tabs(width int) string {
 	t, p := m.locale().Text, m.palette()
-	labels := make([]string, tabCount)
-	occupied := 2 * tabCount // an arrow or two padding cells per tab
-	for i, name := range tabNames {
+	n := m.tabTotal()
+	labels := make([]string, n)
+	occupied := 2 * n // an arrow or two padding cells per tab
+	for i, name := range tabNames[:n] {
+		if i == tabAgents {
+			name = "agents_tab"
+		}
 		labels[i] = t(name)
 		occupied += ansi.StringWidth(labels[i])
 	}
-	if width < 3*tabCount+(tabCount-1) {
+	if width < 3*n+(n-1) {
 		if p.terminal {
 			return ansi.Truncate(p.arrow(labels[m.tab], true), width, "")
 		}
 		return p.accent.Bold(true).Render(ansi.Truncate(labels[m.tab], width, "…"))
 	}
 	gap := " "
-	countSpace := width - occupied - 3*(tabCount-1) - 2
-	if occupied+(tabCount-1) > width {
-		labelWidth := (width - 2*tabCount - (tabCount - 1)) / tabCount
+	countSpace := width - occupied - 3*(n-1) - 2
+	if occupied+(n-1) > width {
+		labelWidth := (width - 2*n - (n - 1)) / n
 		for i, label := range labels {
 			labels[i] = ansi.Truncate(label, labelWidth, "…")
 		}
@@ -186,6 +191,11 @@ func (m model) helpLine(width int) string {
 		hint, compact = t("edit_hint"), "Enter Esc"
 	case m.hasDialog():
 		hint, compact = t("confirm_hint"), "Enter Esc"
+	case m.tab == tabAgents:
+		hint, compact = t("agents_preview_hint"), "←→ Enter q"
+		if m.agents.control {
+			hint, compact = t("agents_control_hint"), "Esc Ctrl+Q/F12"
+		}
 	case m.tab == tabSettings:
 		hint, compact = t("settings_tab_hint"), "←→ Enter Esc"
 		if m.settingsEditing {
@@ -383,7 +393,7 @@ func (m model) View() tea.View {
 		return view
 	}
 	width := max(1, min(120, m.width-4))
-	if m.monitoring || m.mode == "history" || m.mode == "tmux-view" {
+	if m.monitoring || m.mode == "history" || m.mode == "tmux-view" || m.tab == tabAgents {
 		width = max(1, m.width-4)
 	}
 	t := m.locale().Text
@@ -391,8 +401,11 @@ func (m model) View() tea.View {
 	var lines []string
 	showMonitor := false
 	app := m.appArea()
-	frame := &m.monitorFrame
-	if m.tooSmall() {
+	var frame *monitor.Frame
+	if m.tab == tabAgents && !app.Empty() {
+		lines = m.agentsView(width)
+		frame = &m.agents.frame
+	} else if m.tooSmall() {
 		lines = []string{m.header(width), t("small_window"), "q " + t("quit")}
 	} else if m.mode == "tmux" || m.mode == "tmux-view" {
 		lines = m.tmuxLines(width)
@@ -407,6 +420,9 @@ func (m model) View() tea.View {
 	} else if m.monitoring && m.tab == tabRunning {
 		lines = m.monitorView(width)
 		showMonitor = !app.Empty()
+		if showMonitor {
+			frame = &m.monitorFrame
+		}
 	} else if m.tab == tabSettings {
 		lines = m.settingsView(width)
 	} else {
@@ -457,7 +473,7 @@ func (m model) View() tea.View {
 	for i, line := range lines {
 		lines[i] = padding + ansi.Truncate(line, max(1, m.width-4), "…")
 	}
-	appReady := showMonitor && frame.Ready && frame.Err == nil
+	appReady := frame != nil && frame.Ready && frame.Err == nil
 	if !p.terminal && p.colorMode != "auto" {
 		base := "\x1b[0m\x1b[38;2;229;237;247m\x1b[48;2;20;26;38m"
 		if p.colorMode == "light" {
@@ -486,7 +502,7 @@ func (m model) View() tea.View {
 	if scroll, _ := m.scrollableText(); scroll != nil {
 		view.MouseMode = tea.MouseModeCellMotion
 	}
-	if appReady && !frame.Ended && m.mode == "" {
+	if appReady && !frame.Ended && m.mode == "" && (showMonitor || m.agents.control) {
 		tracking := frame.Mouse.CellTracking()
 		if tracking == ansi.ModeMouseAnyEvent {
 			view.MouseMode = tea.MouseModeAllMotion

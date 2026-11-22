@@ -32,6 +32,7 @@ const (
 	Pong
 	Stop
 	Notice
+	GuardedInput
 )
 
 type Frame struct {
@@ -83,11 +84,11 @@ func (e *Encoder) Write(f Frame) error {
 }
 
 func validate(kind Kind, size uint64) error {
-	if kind < Hello || kind > Notice {
+	if kind < Hello || kind > GuardedInput {
 		return fmt.Errorf("unknown frame kind: %d", kind)
 	}
 	limit := uint64(MaxControlPayload)
-	if kind == Input || kind == Output {
+	if kind == Input || kind == Output || kind == GuardedInput {
 		limit = MaxPayload
 	}
 	if size > limit {
@@ -137,6 +138,8 @@ type WelcomeMessage struct {
 const (
 	AttachModesCapability     = "attach-modes-v1"
 	OutputByteQueueCapability = "output-byte-queue-v1"
+	GuardedInputCapability    = "guarded-input-v1"
+	IdleInputCapability       = "idle-input-v1"
 	AttachExclusive           = "exclusive"
 	AttachTakeover            = "takeover"
 	AttachReadOnly            = "readonly"
@@ -161,4 +164,10 @@ type ErrorMessage struct {
 type ExitMessage struct {
 	Code   int    `json:"code"`
 	Signal string `json:"signal,omitempty"`
+}
+
+type GuardedInputMessage struct {
+	PID  int    `json:"pid"`
+	Data []byte `json:"data"`
+	Idle bool   `json:"idle,omitempty"`
 }

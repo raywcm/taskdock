@@ -3,6 +3,7 @@ package terminal
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"image"
@@ -18,6 +19,7 @@ import (
 	"unicode"
 
 	"github.com/charmbracelet/colorprofile"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 	"github.com/raywcm/taskdock/internal/config"
@@ -46,6 +48,7 @@ type statusScreen struct {
 	previous      []string
 	controls      strings.Builder
 	viewport      vtscreen.Viewport
+	selection     vtscreen.Selection
 	appMouse      vtscreen.MouseModes
 	hostMouse     vtscreen.MouseModes
 	capture       vtscreen.MouseCapture
@@ -221,6 +224,9 @@ func (s *statusScreen) inputMode(mode ansi.Mode, enabled bool) {
 func (s *statusScreen) updateMouse(out *strings.Builder) {
 	next := s.appMouse
 	s.scrollMouse = !s.rawInput && next.Tracking == 0 && !s.e.IsAltScreen() && s.e.ScrollbackLen() > 0
+	if !s.scrollMouse {
+		s.selection.Clear()
+	}
 	if s.scrollMouse {
 		next = vtscreen.MouseModes{Tracking: ansi.ModeMouseNormal, Encoding: ansi.ModeMouseExtSgr}
 	} else if s.readOnly {
@@ -258,10 +264,26 @@ func (s *statusScreen) mouseInput(raw []byte) []byte {
 	switch {
 	case modes.Tracking == 0:
 		mouse := event.Mouse()
-		if s.scrollMouse && image.Pt(mouse.X, mouse.Y).In(area) {
+		if s.scrollMouse {
 			if lines := vtscreen.WheelLines(mouse.Button); lines != 0 {
-				s.viewport.Scroll(s.e, lines)
-				s.dirty = true
+				if image.Pt(mouse.X, mouse.Y).In(area) {
+					s.selection.Clear()
+					s.viewport.Scroll(s.e, lines)
+					s.dirty = true
+				}
+			} else {
+				changed, copyReady := s.selection.HandleMouse(event, area)
+				if copyReady {
+					text := s.selection.Text(s.e.Width(), s.e.Height(), func(x, y int) *uv.Cell {
+						return s.viewport.CellAt(s.e, x, y)
+					})
+					if text != "" {
+						s.controls.WriteString("\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte(text)) + "\x1b\\")
+					}
+				}
+				if changed {
+					s.dirty = true
+				}
 			}
 		}
 		// Keep delayed reports out of the shell after an application relinquishes
@@ -440,7 +462,7 @@ func (s *statusScreen) draw(ctx context.Context, fd int) error {
 	if !s.dirty {
 		return nil
 	}
-	rows := s.viewport.Rows(s.e)
+	rows := s.viewport.RowsWithSelection(s.e, &s.selection)
 	app := sessionSize(s.size, true)
 	rows = rows[:min(len(rows), int(app.Rows))]
 	for y, row := range rows {

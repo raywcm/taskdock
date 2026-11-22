@@ -69,7 +69,7 @@ func NewRoot() *cobra.Command {
 			var conflict *task.Spec
 			var nameConflict *service.NameConflictError
 			for {
-				action, err := tui.Run(cmd.Context(), manager, input, output, notice, tui.Options{Version: Version, State: viewState, Conflict: conflict, NameConflict: nameConflict})
+				action, err := tui.Run(cmd.Context(), manager, input, output, notice, tui.Options{AgentctlPath: agentctlPath(), Version: Version, State: viewState, Conflict: conflict, NameConflict: nameConflict})
 				notice = nil
 				conflict = nil
 				nameConflict = nil
@@ -81,6 +81,7 @@ func NewRoot() *cobra.Command {
 				}
 				viewState = action.State
 				switch action.Kind {
+
 				case "attach":
 					r, err := manager.Resolve(cmd.Context(), string(action.ID))
 					if err != nil {
@@ -145,6 +146,13 @@ func NewRoot() *cobra.Command {
 			id = metrics.SessionForProcess(cmd.Context(), records, os.Getpid())
 		}
 		if id != "" {
+			if cmd.Name() != "tdock" {
+				if manager, e := openStore(); e == nil {
+					if record, e := manager.Resolve(cmd.Context(), string(id)); e == nil && service.ManagedAgentsUI(record.Spec.Command) {
+						return nil
+					}
+				}
+			}
 			return errors.New("already inside a TaskDock session; press Ctrl+Q or F12 to return to the list")
 		}
 		return nil
@@ -479,6 +487,7 @@ func NewRoot() *cobra.Command {
 		return m.EnableHistory()
 	}})
 	root.AddCommand(preferences)
+	root.AddCommand(sendInputCommand(openStore))
 	configureLocalization(root, &stateDir)
 	return root
 }

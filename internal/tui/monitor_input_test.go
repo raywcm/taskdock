@@ -236,3 +236,14 @@ func TestBackgroundReportsStayOutOfMonitorInput(t *testing.T) {
 		t.Fatal("literal pasted OSC was changed")
 	}
 }
+
+func TestAgentsControlPreservesNavigationKeys(t *testing.T) {
+	input := &monitorInput{agents: true}
+	input.resetLocked()
+	for _, raw := range []string{"\x1b[A", "\x1b[B", "\t", "\x06", "\x1b[1;2A", "\x11", "\x1b[24~", "任务"} {
+		out, detach := input.decoder.Feed([]byte(raw))
+		if detach || string(out) != raw || len(input.commands) != 0 {
+			t.Fatalf("Agent control intercepted %q: %q", raw, out)
+		}
+	}
+}

@@ -135,7 +135,11 @@
     "search_hint": "输入筛选 · ↑↓/PgUp/PgDn 选择 · Enter 确认 · Esc 返回",
     "sessions": "个会话",
     "move_session": "移动选中会话",
-    "monitor_parser_error": "无法渲染此输出。Esc 返回列表，Enter 可直接进入会话。"
+    "monitor_parser_error": "无法渲染此输出。Esc 返回列表，Enter 可直接进入会话。",
+    "agents_tab": "Agents",
+    "agents_preview_hint": "Enter 控制 · ←/→ 切换标签 · q 退出",
+    "agents_control_hint": "Ctrl+Q / F12 返回 · Esc 逐级返回",
+    "agents_unavailable": "无法打开 Agents"
   },
   "cli": {
     "disconnect existing controllers and take control": "断开现有控制端并接管",

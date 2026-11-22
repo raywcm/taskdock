@@ -35,3 +35,20 @@ func (p *Process) Redraw() error {
 	}
 	return unix.Kill(-group, unix.SIGWINCH)
 }
+
+// ForegroundPID prevents automation from typing into a shell after its program exits.
+func (p *Process) ForegroundPID(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	session, err := unix.Getsid(pid)
+	if err != nil || session != p.cmd.Process.Pid {
+		return false
+	}
+	group, err := unix.Getpgid(pid)
+	if err != nil {
+		return false
+	}
+	foreground, err := unix.IoctlGetInt(int(p.master.Fd()), unix.TIOCGPGRP)
+	return err == nil && foreground == group
+}

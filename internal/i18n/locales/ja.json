@@ -131,7 +131,11 @@
     "search_hint": "入力して検索 · ↑↓/PgUp/PgDn 選択 · Enter 決定 · Esc 戻る",
     "sessions": "セッション",
     "move_session": "セッションを移動",
-    "monitor_parser_error": "この出力を描画できません。Esc で一覧、Enter で直接接続。"
+    "monitor_parser_error": "この出力を描画できません。Esc で一覧、Enter で直接接続。",
+    "agents_tab": "Agents",
+    "agents_preview_hint": "Enter 操作 · ←/→ タブ · q 終了",
+    "agents_control_hint": "Ctrl+Q / F12 戻る · Esc ナビゲーション",
+    "agents_unavailable": "Agents を開けません"
   },
   "cli": {
     "disconnect existing controllers and take control": "既存の操作接続を切断して引き継ぐ",

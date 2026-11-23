@@ -69,7 +69,7 @@ def main():
             expected = b"nscqvh"
             until(lambda: received(harness, alpha) == expected)
             payload = (
-                b"\r\x03\x04\x02d\x02\x04\x1dd\x1b[C\x1b[D"
+                b"\r\x03\x04\x1dd\x1b[C\x1b[D"
                 + "中文🙂".encode()
                 + b"\x1b[200~\x11\x1b[113;5u\x1b[24~\x02d\x1b[A\x1b[B\x1b\x1b[201~"
             )

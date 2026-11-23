@@ -89,7 +89,7 @@ def main():
             os.write(fd, b'\x1b')
             expected += b'\x1b'
             until(lambda: received(h, ref) == expected)
-            payload = b'[24~\x02d\x02\x04\x1dd\x1b[98;5ud\x1b[113;5:3u\x04\x1b[100;5u\x1b[24;2~\x1b[24;1:3~\x1b[<0;10;12M' + '中文🙂'.encode() + b'\x1b[200~\x11\x1b[113;5u\x1b[24~\x02d\x02\x04\x1dd\x1b[201~'
+            payload = b'[24~\x1dd\x1b[113;5:3u\x04\x1b[100;5u\x1b[24;2~\x1b[24;1:3~\x1b[<0;10;12M' + '中文🙂'.encode() + b'\x1b[200~\x11\x1b[113;5u\x1b[24~\x02d\x02\x04\x1dd\x1b[201~'
             os.write(fd, payload); expected += payload
             until(lambda: received(h, ref) == expected)
             os.write(fd, b'\x1b[24~'); assert h.join(pid) == 0

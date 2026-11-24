@@ -192,12 +192,18 @@ def test_dialogs_and_names(h):
     wait_view(fd,terminal,lambda text:'[work-4-2] 0:' in terminal.display[-1] and 'Name already exists' not in text)
     created=next(r for r in records(h) if r['spec']['name']=='work-4-2')
     os.write(fd,b'\x11');wait_view(fd,terminal,lambda text:terminal.alternate and 'Memory' in text)
+    def open_stop_dialog():
+        def visible():
+            os.write(fd, b's')
+            terminal.feed(drain(fd, .15))
+            return 'Confirm stop' in '\n'.join(terminal.display)
+        until(visible)
     # Stop and delete are actual centered modals, preserving the list behind.
-    os.write(fd,b's');wait_view(fd,terminal,lambda text:'Confirm stop' in text)
+    open_stop_dialog()
     modal(terminal,'Confirm stop','work-4-2',fd=fd)
     os.write(fd,b'\r');wait_view(fd,terminal,lambda text:'Confirm stop' not in text)
     assert h.show(created['spec']['id'])['health']=='online'
-    os.write(fd,b's');wait_view(fd,terminal,lambda text:'Confirm stop' in text)
+    open_stop_dialog()
     os.write(fd,b'\x1b[C\r');h.finished(created['spec']['id'])
     wait_view(fd,terminal,lambda text:'Confirm stop' not in text)
     os.write(fd,b'\x1b[C');wait_view(fd,terminal,lambda text:'Tmux' in text)

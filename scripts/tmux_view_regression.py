@@ -56,7 +56,7 @@ def main():
             os.write(fd, b'\x1b')
             wait_output(fd, b'real-work')
             os.write(fd, b'\x1b')
-            wait_output(fd, b'TaskDock')
+            wait_output(fd, b'Running 0')
             os.write(fd, b'q')
             assert h.join(pid) == 0
 

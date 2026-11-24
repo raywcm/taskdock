@@ -121,7 +121,7 @@ def main():
             until(lambda: b'BYPASS-READY' in h.cli('logs', bypass).stdout)
             pid, fd = h.spawn_tty('attach', bypass, '--no-escape')
             wait_output(fd, b'bypass ['); os.write(fd, payload)
-            until(lambda: b'BYPASS:' + payload.hex().encode() in h.cli('logs', bypass, '--raw').stdout)
+            until(lambda: b'BYPASS:' + payload.hex().encode() in h.cli('logs', bypass, '--raw').stdout, seconds=10)
             assert h.join(pid) == 0
 
             # In a canonical shell Ctrl+D still causes EOF, rather than detaching.

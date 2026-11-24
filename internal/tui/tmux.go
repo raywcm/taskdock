@@ -122,6 +122,9 @@ func (m model) tmuxTabKey(k string) (tea.Model, tea.Cmd) {
 	switch k {
 	case "ctrl+c", "q":
 		return m.quit()
+	case "esc":
+		m.selectTab(tabRunning)
+		return m, nil
 	case "left", "shift+tab":
 		m.selectTab(m.tab - 1)
 		return m, nil

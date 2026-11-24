@@ -74,7 +74,7 @@ func TestTmuxPreviewKeepsScrollPositionAndFollowsLiveName(t *testing.T) {
 		t.Fatalf("refresh lost the viewport or name: %s", view())
 	}
 	m, _ = press(m, tea.KeyPgDown)
-	if m.tmux.y != m.height-tmuxHeaderRows {
+	if m.tmux.y != m.height-tmuxChromeRows {
 		t.Fatalf("Page Down moved to %d", m.tmux.y)
 	}
 	m, _ = press(m, tea.KeyHome)
@@ -98,5 +98,12 @@ func TestTmuxPreviewKeepsScrollPositionAndFollowsLiveName(t *testing.T) {
 	refresh("新名称", text+"\nNEW PANE")
 	if m.tmux.x != 0 || !strings.Contains(view(), "NEW PANE") {
 		t.Fatal("a different active pane inherited the previous pane's scroll position")
+	}
+	if lines := m.tmuxLines(m.width - 4); len(lines) != m.height || !strings.Contains(lines[len(lines)-1], "Ctrl+Q") {
+		t.Fatalf("tmux-view missing bottom bar: %v", lines)
+	}
+	nextModel, _ := m.tmuxKey("ctrl+q")
+	if nextModel.(model).mode != "" {
+		t.Fatal("ctrl+q did not exit tmux-view")
 	}
 }

@@ -570,7 +570,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		changed := m.width != msg.Width || m.height != msg.Height
 		if m.mode == "tmux-view" {
-			m.tmux.resize(msg.Width-4, m.height-tmuxHeaderRows, msg.Height-tmuxHeaderRows)
+			m.tmux.resize(msg.Width-4, m.height-tmuxChromeRows, msg.Height-tmuxChromeRows)
 		}
 		m.width, m.height = max(1, msg.Width), max(1, msg.Height)
 		if m.agents.session != nil {

@@ -33,7 +33,11 @@ type tmuxResult struct {
 }
 type tmuxRefresh uint64
 
-const tmuxHeaderRows = 3
+const (
+	tmuxHeaderRows = 3
+	tmuxFooterRows = 1
+	tmuxChromeRows = tmuxHeaderRows + tmuxFooterRows
+)
 
 func (b tmuxBrowser) selectedIndex() int {
 	return slices.IndexFunc(b.sessions, func(s tmux.Session) bool { return s.ID == b.selected })
@@ -96,7 +100,7 @@ func (m model) updateTmux(result tmuxResult) (tea.Model, tea.Cmd) {
 			}
 		}
 	} else if result.err == nil {
-		height := max(1, m.height-tmuxHeaderRows)
+		height := max(1, m.height-tmuxChromeRows)
 		result.y = result.bottom(height)
 		if m.tmux.paneID == result.paneID {
 			result.x = m.tmux.x
@@ -122,7 +126,7 @@ func (m model) tmuxTabKey(k string) (tea.Model, tea.Cmd) {
 	switch k {
 	case "ctrl+c", "q":
 		return m.quit()
-	case "esc":
+	case "esc", "ctrl+q", "f12":
 		m.selectTab(tabRunning)
 		return m, nil
 	case "left", "shift+tab":
@@ -164,7 +168,7 @@ func (m model) tmuxKey(k string) (tea.Model, tea.Cmd) {
 	switch k {
 	case "ctrl+c":
 		return m.quit()
-	case "q", "esc":
+	case "q", "esc", "ctrl+q", "f12":
 		m.closeTmux()
 		if m.mode == "tmux-view" {
 			m.mode = ""
@@ -184,7 +188,7 @@ func (m model) tmuxKey(k string) (tea.Model, tea.Cmd) {
 			return m, m.loadTmux()
 		}
 	case "up", "down", "k", "j", "pgup", "pgdown", "home", "end", "left", "right", "h", "l":
-		height := max(1, m.height-tmuxHeaderRows)
+		height := max(1, m.height-tmuxChromeRows)
 		if m.mode == "tmux-view" {
 			m.tmux.scroll(k, m.width-4, height)
 		} else if i := m.tmux.selectedIndex(); i >= 0 {
@@ -217,40 +221,61 @@ func (m model) tmuxTabView(width int) []string {
 		label := p.arrow(safe(s.Name)+"  "+s.ID, s.ID == m.tmux.selected)
 		lines = append(lines, ansi.Truncate(label, width, "…"))
 	}
-	return lines
+	for len(lines) < m.height-1 {
+		lines = append(lines, "")
+	}
+	return append(lines, m.status(width))
 }
 
 func (m model) tmuxLines(width int) []string {
-	t := m.locale().Text
-	lines := []string{"tmux  ·  " + t("mode_readonly"), "↑↓  PgUp/PgDn  Enter  F5  Esc", ""}
+	t, p := m.locale().Text, m.palette()
+	lines := []string{"tmux  ·  " + t("mode_readonly"), "↑↓  PgUp/PgDn  Enter  F5  Ctrl+Q/Esc", ""}
 	if m.mode == "tmux-view" {
-		lines[1] = "↑↓ ←→  PgUp/PgDn  Home/End  F5  Esc"
+		lines[1] = "↑↓ ←→  PgUp/PgDn  Home/End  F5  Ctrl+Q/F12/Esc"
 		if m.tmux.paneName != "" {
 			lines[0] += "  ·  " + safe(m.tmux.paneName)
 		}
 	}
+	footer := p.muted.Render(ansi.Truncate(t("detach_hint"), width, "…"))
 	if m.tmux.err != nil {
-		return append(lines, safe(m.tmux.err.Error()))
+		lines = append(lines, safe(m.tmux.err.Error()))
+		for len(lines) < m.height-1 {
+			lines = append(lines, "")
+		}
+		return append(lines, footer)
 	}
 	if !m.tmux.loaded {
-		return append(lines, t("loading"))
+		lines = append(lines, t("loading"))
+		for len(lines) < m.height-1 {
+			lines = append(lines, "")
+		}
+		return append(lines, footer)
 	}
-	available := max(1, m.height-len(lines))
+	available := max(1, m.height-len(lines)-tmuxFooterRows)
 	if m.mode == "tmux-view" {
 		start := min(m.tmux.y, m.tmux.bottom(available))
 		for _, line := range m.tmux.lines[start:min(len(m.tmux.lines), start+available)] {
 			lines = append(lines, ansi.Cut(line, m.tmux.x, m.tmux.x+width))
 		}
-		return lines
+		for len(lines) < m.height-1 {
+			lines = append(lines, "")
+		}
+		return append(lines, footer)
 	}
 	if len(m.tmux.sessions) == 0 {
-		return append(lines, t("empty_tmux"))
+		lines = append(lines, t("empty_tmux"))
+		for len(lines) < m.height-1 {
+			lines = append(lines, "")
+		}
+		return append(lines, footer)
 	}
 	start := max(0, m.tmux.selectedIndex()-available+1)
-	p := m.palette()
 	for _, s := range m.tmux.sessions[start:min(len(m.tmux.sessions), start+available)] {
 		label := p.arrow(safe(s.Name)+"  "+s.ID, s.ID == m.tmux.selected)
 		lines = append(lines, ansi.Truncate(label, width, "…"))
 	}
-	return lines
+	for len(lines) < m.height-1 {
+		lines = append(lines, "")
+	}
+	return append(lines, footer)
 }

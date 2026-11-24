@@ -180,7 +180,6 @@ def main():
         h = Harness(root, binary)
         try:
             h.cli('settings', 'set', 'language', 'en')
-            h.cli('settings', 'set', 'history-retention', 'off')
             ref = h.create('theme-work', sys.executable, '-c', FIXTURE, 'theme')
             check_palettes(h)
             ENV.pop('COLORTERM')

@@ -53,7 +53,6 @@ def main():
         harness = Harness(root, binary)
         try:
             harness.cli("settings", "set", "language", "en")
-            harness.cli("settings", "set", "history-retention", "off")
             alpha = harness.create("alpha", sys.executable, "-c", FIXTURE, "alpha")
             beta = harness.create("beta", sys.executable, "-c", FIXTURE, "beta")
             until(

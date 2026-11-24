@@ -132,6 +132,8 @@
     "sessions": "sesiones",
     "move_session": "Mover sesión",
     "monitor_parser_error": "No se puede mostrar esta salida. Esc: lista; Enter: sesión directa.",
+    "tmux_tab": "Tmux",
+    "tmux": "Tmux",
     "agents_tab": "Agents",
     "agents_preview_hint": "Enter controlar · ←/→ pestañas · q salir",
     "agents_control_hint": "Ctrl+Q / F12 volver · Esc navegar",

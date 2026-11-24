@@ -32,7 +32,7 @@ def main():
  with tempfile.TemporaryDirectory(prefix='tdock-colors-') as root:
   h=Harness(root,binary)
   try:
-   h.cli('settings','set','language','en');h.cli('settings','set','history-retention','off')
+   h.cli('settings','set','language','en')
    styles=[('rgb',b'\x1b[1;3;38;2;229;237;247;48;2;20;26;38m'),('indexed',b'\x1b[38;5;202;48;5;17m'),('inverse',b'\x1b[0;7m'),('faint',b'\x1b[0;2;36m')]
    for name,style in styles:
     for mode in ['alternate','inline']:

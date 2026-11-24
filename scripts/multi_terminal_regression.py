@@ -102,7 +102,7 @@ def main():
  with tempfile.TemporaryDirectory(prefix='tdock-multi-') as root:
   h=Harness(root,broker)
   try:
-   h.cli('settings','set','language','en');h.cli('settings','set','history-retention','off')
+   h.cli('settings','set','language','en')
    for name in ['alpha','beta','gamma']:h.create(name,sys.executable,'-c',FIXTURE,name)
    h.binary=binary
    ordering(h);cooperation(h)

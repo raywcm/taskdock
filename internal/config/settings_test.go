@@ -40,31 +40,14 @@ func TestAllLanguagesValidateAndDetectRegionalLocales(t *testing.T) {
 	}
 }
 
-func TestHistoryRetentionDefaultsAndDurations(t *testing.T) {
-	if Defaults().HistoryRetentionSeconds != 3600 {
-		t.Fatal("default must be one hour")
-	}
-	for value, want := range map[string]int64{"off": 0, "0": 0, "30m": 1800, "1h": 3600, "24h": 86400, "1s": 1} {
-		got, err := With(Defaults(), "history-retention", value)
-		if err != nil || got.HistoryRetentionSeconds != want {
-			t.Fatal(value, got, err)
-		}
-	}
-	for _, value := range []string{"-1h", "0.5s", "10000h", "invalid"} {
-		if _, err := With(Defaults(), "history-retention", value); err == nil {
-			t.Fatal("accepted", value)
-		}
-	}
-}
-
 func TestSettingsDraftAppliesOnlyLocalEdits(t *testing.T) {
 	before := Defaults()
 	draft := before
-	draft.Theme, draft.ShowResources, draft.HistoryRetentionSeconds = "classic", false, 0
+	draft.Theme, draft.ShowResources = "classic", false
 	other := before
-	other.Language, other.RefreshSeconds, other.DefaultTab, other.ColorMode = "fr", 5, "stop", "dark"
+	other.Language, other.RefreshSeconds, other.DefaultTab, other.ColorMode = "fr", 5, "tmux", "dark"
 	combined := other
-	combined.Theme, combined.ShowResources, combined.HistoryRetentionSeconds = "classic", false, 0
+	combined.Theme, combined.ShowResources = "classic", false
 	for _, pair := range [][2]Settings{{draft, other}, {other, draft}} {
 		got, err := pair[0].EditsFrom(before)(pair[1])
 		if err != nil || got != combined {

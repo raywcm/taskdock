@@ -24,7 +24,7 @@ func TestSettingsRoundTripPermissionsAndValidation(t *testing.T) {
 	changed := defaults
 	changed.Language = "zh-CN"
 	changed.Theme, changed.ColorMode = "terminal", "light"
-	changed.DefaultTab = "stop"
+	changed.DefaultTab = "tmux"
 	changed.ShowResources = false
 	if err := s.SaveSettings(context.Background(), changed); err != nil {
 		t.Fatal(err)
@@ -52,7 +52,7 @@ func TestSettingsRoundTripPermissionsAndValidation(t *testing.T) {
 	}
 }
 
-func TestOldPreferencesUseDefaultRetention(t *testing.T) {
+func TestOldPreferencesUseDefaults(t *testing.T) {
 	repository, err := Open(filepath.Join(t.TempDir(), "state"))
 	if err != nil {
 		t.Fatal(err)
@@ -61,8 +61,8 @@ func TestOldPreferencesUseDefaultRetention(t *testing.T) {
 		t.Fatal(err)
 	}
 	settings, err := repository.Settings()
-	if err != nil || settings.HistoryRetentionSeconds != 3600 {
-		t.Fatal("old settings lost default retention", settings, err)
+	if err != nil || settings.DefaultTab != "running" || settings.RefreshSeconds != 2 {
+		t.Fatal("old settings lost defaults", settings, err)
 	}
 }
 

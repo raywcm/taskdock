@@ -25,6 +25,9 @@ func (m model) searchRows() []task.Record {
 	query := strings.Fields(strings.ToLower(m.input.Value()))
 	rows := make([]task.Record, 0, len(m.tasks))
 	for _, r := range m.tasks {
+		if !active(r) {
+			continue
+		}
 		text := strings.ToLower(r.Spec.Name + " " + string(r.Spec.ID) + " " + r.Spec.Dir + " " + strings.Join(r.Spec.Command, " "))
 		matches := true
 		for _, word := range query {
@@ -72,21 +75,13 @@ func (m model) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			r := rows[m.searchCursor]
 			m.mode = ""
 			m.input.Blur()
-			m.tab = tabStop
-			if active(r) {
-				m.tab = tabRunning
-			}
+			m.tab = tabRunning
 			m.lastTaskTab = m.tab
 			for i, row := range m.rows(m.tab) {
 				if row.Spec.ID == r.Spec.ID {
 					m.cursors[m.tab] = i
 					break
 				}
-			}
-			if !active(r) {
-				m.monitoring = false
-				m.closeMonitor()
-				return m, m.openHistory(r)
 			}
 			if !m.monitoring {
 				m.selected = Selection{Kind: "attach", ID: r.Spec.ID, State: m.state()}

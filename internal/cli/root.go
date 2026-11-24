@@ -10,7 +10,6 @@ import (
 
 	"github.com/raywcm/taskdock/internal/config"
 	"github.com/raywcm/taskdock/internal/daemon"
-	historycleanup "github.com/raywcm/taskdock/internal/history"
 	"github.com/raywcm/taskdock/internal/i18n"
 	"github.com/raywcm/taskdock/internal/ipc"
 	"github.com/raywcm/taskdock/internal/metrics"
@@ -40,16 +39,7 @@ func NewRoot() *cobra.Command {
 		return service.New(dir)
 	}
 	var root *cobra.Command
-	open := func() (*service.Manager, error) {
-		manager, err := openStore()
-		if err != nil {
-			return nil, err
-		}
-		if err := manager.EnableHistory(); err != nil {
-			fmt.Fprintln(root.ErrOrStderr(), "TaskDock: history cleanup:", err)
-		}
-		return manager, nil
-	}
+	open := openStore
 	root = &cobra.Command{Use: "tdock", Short: "Independent terminal task manager", Version: Version, Args: cobra.NoArgs, SilenceUsage: true, SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			input, ok := cmd.InOrStdin().(*os.File)
@@ -160,7 +150,7 @@ func NewRoot() *cobra.Command {
 	root.CompletionOptions.DisableDefaultCmd = true
 	root.PersistentFlags().BoolVar(&noStatus, "no-status", false, "use native terminal forwarding without a status row")
 	root.PersistentFlags().StringVar(&stateDir, "state-dir", "", "absolute state directory (or TDOCK_STATE_DIR)")
-	var listJSON, history bool
+	var listJSON bool
 	list := &cobra.Command{Use: "list-sessions", Aliases: []string{"ls"}, Short: "List tasks and live broker health", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		m, err := open()
 		if err != nil {
@@ -173,16 +163,6 @@ func NewRoot() *cobra.Command {
 		for _, warning := range warnings {
 			fmt.Fprintln(cmd.ErrOrStderr(), "TaskDock:", warning)
 		}
-		all := records
-		if history {
-			filtered := make([]task.Record, 0)
-			for _, r := range records {
-				if r.Health == "finished" {
-					filtered = append(filtered, r)
-				}
-			}
-			records = filtered
-		}
 		if listJSON {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(records)
 		}
@@ -191,7 +171,7 @@ func NewRoot() *cobra.Command {
 			preferences = config.Defaults()
 		}
 		locale := i18n.New(preferences.Language)
-		refs := task.ShortIDs(all)
+		refs := task.ShortIDs(records)
 		for _, r := range records {
 			if _, err := fmt.Fprintln(cmd.OutOrStdout(), service.LabelLocale(r, refs[r.Spec.ID], locale)); err != nil {
 				return err
@@ -200,7 +180,6 @@ func NewRoot() *cobra.Command {
 		return nil
 	}}
 	list.Flags().BoolVar(&listJSON, "json", false, "print JSON")
-	list.Flags().BoolVar(&history, "history", false, "only completed tasks")
 	root.AddCommand(list, tmuxCommand())
 	var name, windowName, dir string
 	var detached, newJSON, reuse bool
@@ -432,13 +411,6 @@ func NewRoot() *cobra.Command {
 		return daemon.Run(cmd.Context(), state, task.ID(args[0]), ready)
 	}}
 	root.AddCommand(internal)
-	root.AddCommand(&cobra.Command{Use: "__history", Hidden: true, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		state, err := config.StateDir(stateDir)
-		if err != nil {
-			return err
-		}
-		return historycleanup.Run(cmd.Context(), state)
-	}})
 	preferences := &cobra.Command{Use: "settings", Short: "View or change interface preferences", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		m, err := open()
 		if err != nil {
@@ -454,15 +426,6 @@ func NewRoot() *cobra.Command {
 		}
 		l := i18n.New(settings.Language)
 		_, err = fmt.Fprintf(cmd.OutOrStdout(), "TaskDock · %s\n%s: %s (%s)\n%s: %s\n%s: %s\n%s: %ds\n%s: %t\n%s: %s\n", l.Text("settings"), l.Text("language"), settings.Language, l.Language, l.Text("theme"), settings.Theme, l.Text("color_mode"), settings.ColorMode, l.Text("interval"), settings.RefreshSeconds, l.Text("resources"), settings.ShowResources, l.Text("default_tab"), settings.DefaultTab)
-		if err != nil {
-			return err
-		}
-		duration, _ := settings.Retention()
-		value := duration.String()
-		if duration == 0 {
-			value = l.Text("never")
-		}
-		_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", l.Text("auto_delete"), value)
 		return err
 	}}
 	preferences.Flags().Bool("json", false, "print JSON")
@@ -481,10 +444,7 @@ func NewRoot() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if err := m.Store.SaveSettings(cmd.Context(), config.Defaults()); err != nil {
-			return err
-		}
-		return m.EnableHistory()
+		return m.Store.SaveSettings(cmd.Context(), config.Defaults())
 	}})
 	root.AddCommand(preferences)
 	root.AddCommand(sendInputCommand(openStore))

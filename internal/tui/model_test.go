@@ -127,21 +127,15 @@ func TestTabsKeepIndependentSelectionAndActionsUseFullIDs(t *testing.T) {
 	m, _ = press(m, tea.KeyDown)
 	selected := m.tasks[1].Spec.ID
 	m, _ = press(m, tea.KeyRight)
-	if m.tab != 1 || len(m.rows(m.tab)) != 1 {
-		t.Fatal("right arrow did not select stopped sessions")
+	if m.tab != tabTmux {
+		t.Fatal("right arrow did not select tmux tab")
 	}
-	// Enter on history never tries to attach to an already ended process.
-	m, cmd := press(m, tea.KeyEnter)
-	if cmd == nil || m.selected.Kind != "" || m.mode != "history" {
-		t.Fatal("did not open stopped-session history")
-	}
-	m, _ = press(m, tea.KeyEscape)
 	m, _ = press(m, tea.KeyLeft)
 	r, _ := m.current()
 	if r.Spec.ID != selected {
 		t.Fatal("lost selection across tab switch")
 	}
-	m, cmd = press(m, tea.KeyEnter)
+	m, cmd := press(m, tea.KeyEnter)
 	if cmd == nil || m.selected.ID != selected || m.selected.State.Tab != "running" {
 		t.Fatal("short display ID leaked into actual attach identity")
 	}
@@ -217,11 +211,10 @@ func TestSettingsSaveReflectsAnotherFrontend(t *testing.T) {
 	backend := m.catalog.(*fakeBackend)
 	backend.settings.Language = "fr"
 	backend.settings.ColorMode = "light"
-	backend.settings.HistoryRetentionSeconds = 0
 	m, cmd := press(m, tea.KeyEnter)
 	next, _ := m.Update(cmd())
 	m = next.(model)
-	if m.settings.Theme != "classic" || m.settings.ColorMode != "light" || m.settings.Language != "fr" || m.settings.HistoryRetentionSeconds != 0 ||
+	if m.settings.Theme != "classic" || m.settings.ColorMode != "light" || m.settings.Language != "fr" ||
 		m.draft != m.settings || backend.settings != m.settings {
 		t.Fatalf("stale draft overwrote another frontend: %+v", m.settings)
 	}
@@ -232,16 +225,14 @@ func TestStopAndDeleteTabs(t *testing.T) {
 	if m.mode == "delete" {
 		t.Fatal("offered stopped-session deletion for active task")
 	}
-	m, _ = press(m, tea.KeyRight)
-	r, _ := m.current()
-	m, _ = press(m, 'x')
+	m, _ = press(m, 's')
 	m, cmd := press(m, 'y')
 	if cmd == nil {
-		t.Fatal("missing delete action")
+		t.Fatal("missing stop action")
 	}
 	cmd()
-	if m.catalog.(*fakeBackend).deleted != r.Spec.ID {
-		t.Fatal("deleted a task from the wrong tab")
+	if m.catalog.(*fakeBackend).stopped != m.tasks[0].Spec.ID {
+		t.Fatal("stopped the wrong task")
 	}
 }
 
@@ -353,11 +344,6 @@ func TestConventionalKeysAndLegacyAliases(t *testing.T) {
 		if m.mode == "delete" {
 			t.Fatal("delete offered for active session")
 		}
-		m, _ = press(m, tea.KeyRight)
-		m, _ = press(m, key)
-		if m.mode != "delete" || m.target != m.tasks[2].Spec.ID {
-			t.Fatalf("%v did not confirm deletion of stopped session", key)
-		}
 	}
 	for _, key := range []rune{tea.KeyF5, 'r'} {
 		m := readyModel(t)
@@ -424,7 +410,7 @@ func TestSettingsIsThirdTabAndNavigationPreservesSelections(t *testing.T) {
 		t.Fatal("settings tab exposed a task action target")
 	}
 	view := ansi.Strip(m.View().Content)
-	if !strings.Contains(view, "Running 2") || !strings.Contains(view, "History 1") || !strings.Contains(view, "Settings") {
+	if !strings.Contains(view, "Running 2") || !strings.Contains(view, "Tmux") || !strings.Contains(view, "Settings") {
 		t.Fatal("settings lost the common tab strip", view)
 	}
 	m, _ = press(m, tea.KeyRight)
@@ -437,7 +423,7 @@ func TestSettingsIsThirdTabAndNavigationPreservesSelections(t *testing.T) {
 		t.Fatal("left did not wrap to settings")
 	}
 	m, _ = press(m, tea.KeyLeft)
-	if m.tab != tabStop {
+	if m.tab != tabTmux {
 		t.Fatal("settings navigation arrow edited instead of switching tab")
 	}
 }
@@ -542,36 +528,6 @@ func TestSingleLineHelpAndAllLanguages(t *testing.T) {
 				}
 			}
 		}
-	}
-}
-
-func TestRetentionSettingPreviewsAndSaves(t *testing.T) {
-	m := readyModel(t)
-	m, _ = press(m, ',')
-	m, _ = press(m, tea.KeyUp)
-	if m.settingRow != settingsCount-1 || m.draft.HistoryRetentionSeconds != 3600 {
-		t.Fatal("retention setting not available")
-	}
-	m, _ = press(m, tea.KeyLeft)
-	if m.draft.HistoryRetentionSeconds != 1800 || m.settings.HistoryRetentionSeconds != 3600 {
-		t.Fatal("retention preview changed committed policy")
-	}
-	m, cmd := press(m, tea.KeyEnter)
-	next, _ := m.Update(cmd())
-	m = next.(model)
-	if m.settings.HistoryRetentionSeconds != 1800 || m.catalog.(*fakeBackend).settings.HistoryRetentionSeconds != 1800 {
-		t.Fatal("retention did not persist")
-	}
-	m, _ = press(m, tea.KeyEnter)
-	m.settingRow = settingsCount - 1
-	m.draft.HistoryRetentionSeconds = 300
-	m, _ = press(m, tea.KeyLeft)
-	if m.draft.HistoryRetentionSeconds != 0 || m.retentionLabel(0) != "Never" {
-		t.Fatal("cannot disable cleanup")
-	}
-	m, _ = press(m, tea.KeyEscape)
-	if m.settings.HistoryRetentionSeconds != 1800 || m.draft.HistoryRetentionSeconds != 1800 {
-		t.Fatal("cancel changed retention")
 	}
 }
 
@@ -808,71 +764,6 @@ func TestThemesPreserveApplicationColors(t *testing.T) {
 	}
 }
 
-func TestStoppedHistoryScrollAndReturn(t *testing.T) {
-	m := readyModel(t)
-	m, _ = press(m, tea.KeyRight)
-	f := m.catalog.(*fakeBackend)
-	var rows []string
-	for i := 0; i < 80; i++ {
-		rows = append(rows, fmt.Sprintf("LINE-%03d %s", i, strings.Repeat("x", 100)))
-	}
-	f.logData = []byte(strings.Join(rows, "\n") + "\n")
-	id := m.tasks[2].Spec.ID
-	m, cmd := press(m, tea.KeyEnter)
-	if m.mode != "history" || cmd == nil || m.selected.Kind != "" {
-		t.Fatal("stopped Enter did not open history in place")
-	}
-	next, _ := m.Update(cmd())
-	m = next.(model)
-	if f.logged != id || f.loggedRaw || f.stopped != "" || f.deleted != "" {
-		t.Fatal("history did not use safe logs for the exact record")
-	}
-	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "Output history") || !strings.Contains(view, "LINE-079") {
-		t.Fatal("history did not start at the latest output")
-	}
-	m, _ = press(m, tea.KeyHome)
-	if m.history.y != 0 || !strings.Contains(ansi.Strip(m.View().Content), "LINE-000") {
-		t.Fatal("Home did not reach the first retained line")
-	}
-	m, _ = press(m, tea.KeyPgDown)
-	if m.history.y == 0 {
-		t.Fatal("page down did not scroll")
-	}
-	m, _ = press(m, tea.KeyRight)
-	if m.history.x == 0 {
-		t.Fatal("history cannot pan long lines")
-	}
-	m.width = 200
-	m.history.x, m.history.y = 0, 0
-	m.history.lines = []string{strings.Repeat("x", 150) + "WIDE-HISTORY"}
-	if !strings.Contains(ansi.Strip(m.View().Content), "WIDE-HISTORY") {
-		t.Fatal("history clipped a long line despite available terminal width")
-	}
-	m, _ = press(m, tea.KeyEscape)
-	if m.mode != "" || m.tab != tabStop || m.selected.Kind != "" || m.history.cancel != nil {
-		t.Fatal("history did not return to the History tab")
-	}
-	current, _ := m.current()
-	if current.Spec.ID != id {
-		t.Fatal("history lost the original selection")
-	}
-}
-func TestHistorySanitizationAndStaleRead(t *testing.T) {
-	m := readyModel(t)
-	m, _ = press(m, tea.KeyRight)
-	m.catalog.(*fakeBackend).logData = []byte("中文\r\nnext\rtab\tend\u009b[2J\x00\n")
-	m, cmd := press(m, tea.KeyEnter)
-	msg := cmd().(historyLoaded)
-	if strings.Contains(strings.Join(msg.lines, "\n"), "\u009b") || strings.Contains(strings.Join(msg.lines, "\n"), "\r") || strings.Contains(strings.Join(msg.lines, "\n"), "\x00") {
-		t.Fatal("history left unsafe controls")
-	}
-	m, _ = press(m, tea.KeyEscape)
-	next, _ := m.Update(msg)
-	m = next.(model)
-	if m.mode != "" || len(m.history.lines) != 0 {
-		t.Fatal("late history read reopened or changed the list")
-	}
-}
 func TestMonitorHorizontalKeysDoNothing(t *testing.T) {
 	m := readyModel(t)
 	m, _ = press(m, 'v')
@@ -896,7 +787,7 @@ func TestMonitorHorizontalKeysDoNothing(t *testing.T) {
 func TestContextHintsStayInTitleRow(t *testing.T) {
 	for _, language := range config.LanguageCodes() {
 		for _, width := range []int{44, 80, 160} {
-			for _, mode := range []string{"", "help", "search", "history", "connect", "settings", "monitor"} {
+			for _, mode := range []string{"", "help", "search", "connect", "settings", "monitor"} {
 				m := readyModel(t)
 				m.settings.Language = language
 				m.width = width
@@ -912,8 +803,6 @@ func TestContextHintsStayInTitleRow(t *testing.T) {
 				case "settings":
 					m.tab = tabSettings
 					m.draft = m.settings
-				case "history":
-					key = "↑"
 				}
 				first := strings.Split(ansi.Strip(m.View().Content), "\n")[0]
 				if !strings.Contains(first, "TaskDock") || !strings.Contains(first, key) || ansi.StringWidth(first) > width {

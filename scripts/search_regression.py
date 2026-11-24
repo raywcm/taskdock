@@ -23,7 +23,6 @@ def main():
         h = Harness(root, binary)
         try:
             h.cli('settings', 'set', 'language', 'en')
-            h.cli('settings', 'set', 'history-retention', 'off')
             refs = [h.create('work-%02d' % i, sys.executable, '-c', FIXTURE, str(i)) for i in range(24)]
             old = h.create('archived', '/bin/sh', '-c', 'printf SEARCH-HISTORY')
             h.finished(old)
@@ -75,12 +74,8 @@ def main():
             expected += b'resumed'
             until(lambda: received(h, refs[-1]) == expected)
             assert b'SIZE:' not in h.cli('logs', refs[-1], '--raw').stdout[offset:]
-            # Search includes stopped sessions and opens retained history.
-            os.write(fd, b'\x06' + old[-8:].encode() + b'\r')
-            wait_view(fd, t, lambda s: 'Output history' in s and 'SEARCH-HISTORY' in s)
-            assert h.show(old)['runtime']['state'] == 'exited'
-            os.write(fd, b'\x1b')
-            wait_view(fd, t, lambda s: 'archived' in s and 'Duration' in s)
+            os.write(fd, b'\x1b[24~')
+            wait_view(fd, t, lambda s: 'Memory' in s)
             # Search from the list follows list Enter semantics and attaches fullscreen.
             os.write(fd, b'\x06WORK-00\r')
             wait_view(fd, t, lambda s: '[work-00] 0:' in t.display[-1] and 'Control' not in s)

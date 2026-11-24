@@ -60,7 +60,6 @@ def main():
         h = Harness(root, binary)
         try:
             h.cli('settings', 'set', 'language', 'en')
-            h.cli('settings', 'set', 'history-retention', 'off')
             ref = h.create('hotkey-work', sys.executable, '-c', FIXTURE)
             until(lambda: b'HOTKEY-READY' in h.cli('logs', ref).stdout)
             original = h.show(ref)['runtime']

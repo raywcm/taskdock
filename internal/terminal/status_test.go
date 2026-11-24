@@ -151,13 +151,13 @@ func TestApplicationMouseModeTakesOverFromScrollback(t *testing.T) {
 	if got := s.mouseInput(wheel); got != nil || !s.viewport.Scrolled() {
 		t.Fatal("wheel did not scroll the inline viewport")
 	}
-	if err := s.feed([]byte("\x1b[?1006h\x1b[?1002h")); err != nil {
+	if err := s.feed([]byte("\x1b[?1006h\x1b[?1003h")); err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()
 	s.updateMouse(&out)
-	if !strings.Contains(out.String(), ansi.ResetModeMouseNormal) ||
-		!strings.Contains(out.String(), ansi.SetModeMouseButtonEvent) ||
+	if !strings.Contains(out.String(), ansi.ResetModeMouseButtonEvent) ||
+		!strings.Contains(out.String(), ansi.SetModeMouseAnyEvent) ||
 		strings.Contains(out.String(), ansi.ResetModeMouseExtSgr) {
 		t.Fatalf("wrong transition to application mouse tracking: %q", out.String())
 	}

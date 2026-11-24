@@ -48,14 +48,9 @@ def main():
             assert terminal.current.buffer[selected][x].bold and not terminal.current.buffer[selected][x].reverse
             wait_view(fd,terminal,lambda text:bool(re.search(r'[1-9]\d*(?:\.\d+)?%',text)) and 'MiB' in text)
             os.write(fd,b'\x1b[C')
-            text=wait_view(fd,terminal,lambda text:'completed-work' in text)
-            assert 'live-work' not in text
-            os.write(fd,b'\r')
-            wait_view(fd,terminal,lambda text:'Output history' in text and 'No retained output' in text)
-            os.write(fd,b'\x1b')
-            wait_view(fd,terminal,lambda text:'Output history' not in text and 'completed-work' in text)
+            text=wait_view(fd,terminal,lambda text:'Tmux' in text and 'live-work' not in text)
             os.write(fd,b'\x1b[Z') # Shift+Tab
-            wait_view(fd,terminal,lambda text:'live-work' in text and 'completed-work' not in text)
+            wait_view(fd,terminal,lambda text:'live-work' in text)
             os.write(fd,b'\x1bOP') # F1
             wait_view(fd,terminal,lambda text:'Keyboard shortcuts' in text and 'Ctrl+Q' in text and 'F2' in text)
             os.write(fd,b'\x1b')
@@ -66,15 +61,15 @@ def main():
             wait_view(fd,terminal,lambda text:'Keyboard shortcuts' in text)
             os.write(fd,b'?')
             wait_view(fd,terminal,lambda text:'live-work' in text and 'Keyboard shortcuts' not in text)
-            os.write(fd,b'\t\t') # Running -> History -> Settings
+            os.write(fd,b'\t\t') # Running -> Tmux -> Settings
             text=wait_view(fd,terminal,lambda text:'Language' in text and 'Default tab' in text and 'Enter edit' in text)
             assert version in text and version not in terminal.display[0], 'version belongs in settings'
-            tab_row=next(i for i,row in enumerate(terminal.display) if all(label in row for label in ('Running','History','Settings')))
+            tab_row=next(i for i,row in enumerate(terminal.display) if all(label in row for label in ('Running','Tmux','Settings')))
             tab_x=terminal.display[tab_row].index('Settings')
             assert '› Settings' in terminal.display[tab_row] and terminal.current.buffer[tab_row][tab_x].bold
             assert 'live-work' not in text and 'completed-work' not in text
             assert 'RSS' not in text and '100%' not in text and 'metrics_hint' not in text
-            os.write(fd,b'\x1b[D\x1b[D') # Settings -> History -> Running, also with the optional Agents tab
+            os.write(fd,b'\x1b[D\x1b[D') # Settings -> Tmux -> Running, also with the optional Agents tab
             wait_view(fd,terminal,lambda text:'live-work' in text and 'Memory' in text)
             os.write(fd,b',') # Shortcut directly focuses settings editor
             wait_view(fd,terminal,lambda text:'Language' in text and 'Default tab' in text)
@@ -84,37 +79,32 @@ def main():
             wait_view(fd,terminal,lambda text:'设置已保存' in text and '运行中' in text)
             assert json.loads(h.cli('settings','--json').stdout)['language']=='zh-CN'
             assert 'live-work' not in '\n'.join(terminal.display), 'save unexpectedly left the settings tab'
-            os.write(fd,b'\x1b[D') # Settings -> History
-            wait_view(fd,terminal,lambda text:'completed-work' in text)
-            os.write(fd,b'\x1b[D') # History -> Running
+            os.write(fd,b'\x1b[D') # Settings -> Tmux
+            wait_view(fd,terminal,lambda text:'Tmux会话' in text)
+            os.write(fd,b'\x1b[D') # Tmux -> Running
             wait_view(fd,terminal,lambda text:'live-work' in text)
             os.write(fd,b',');wait_view(fd,terminal,lambda text:'刷新间隔' in text)
             os.write(fd,b'\x1b[B' * 4 + b'\x1b[C\r')
             wait_view(fd,terminal,lambda text:'设置已保存' in text and '刷新间隔' in text)
             assert json.loads(h.cli('settings','--json').stdout)['show_resources'] is False
-            os.write(fd,b'\x1b[Z\x1b[Z') # Settings -> History -> Running
+            os.write(fd,b'\x1b[Z\x1b[Z') # Settings -> Tmux -> Running
             wait_view(fd,terminal,lambda text:'live-work' in text and 'CPU' not in text)
-            os.write(fd,b',');wait_view(fd,terminal,lambda text:'已停止自动删除' in text)
-            os.write(fd,b'\x1b[A\x1b[D\r') # Wrap to retention, one hour -> thirty minutes, save
-            wait_view(fd,terminal,lambda text:'设置已保存' in text and '30 分钟' in text)
-            assert json.loads(h.cli('settings','--json').stdout)['history_retention_seconds']==1800
-            os.write(fd,b'\x1b[Z\x1b[Z');wait_view(fd,terminal,lambda text:'live-work' in text)
             os.write(fd,b'q');drain(fd);assert h.join(pid)==0
-            h.cli('settings','set','default-tab','stop')
+            h.cli('settings','set','default-tab','tmux')
             pid,fd=h.spawn_tty();terminal=Terminal()
-            text=wait_view(fd,terminal,lambda text:'completed-work' in text and '历史' in text)
+            text=wait_view(fd,terminal,lambda text:'Tmux会话' in text)
             assert 'live-work' not in text
             os.write(fd,b'q');drain(fd);assert h.join(pid)==0
-            for code,native,stopped,language_label in [
-                ('ja','日本語','履歴','言語'),
-                ('es','Español','Historial','Idioma'),
-                ('fr','Français','Historique','Langue'),
+            for code,native,tmux_label,language_label in [
+                ('ja','日本語','Tmuxセッション','言語'),
+                ('es','Español','Tmux','Idioma'),
+                ('fr','Français','Tmux','Langue'),
             ]:
                 h.cli('settings','set','language',code)
                 pid,fd=h.spawn_tty();terminal=Terminal()
-                wait_view(fd,terminal,lambda text:stopped in text and 'completed-work' in text)
+                wait_view(fd,terminal,lambda text:tmux_label in text)
                 os.write(fd,b',')
-                text=wait_view(fd,terminal,lambda text:language_label in text and native in text and 'completed-work' not in text)
+                text=wait_view(fd,terminal,lambda text:language_label in text and native in text)
                 assert 'RSS' not in text and '100%' not in text
                 os.write(fd,b'\x1b');terminal.feed(drain(fd,.15))
                 os.write(fd,b'q');drain(fd);assert h.join(pid)==0

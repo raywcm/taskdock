@@ -78,15 +78,15 @@ func (m *model) loadTmux() tea.Cmd {
 }
 
 func (m model) updateTmux(result tmuxResult) (tea.Model, tea.Cmd) {
-	if result.generation != m.tmux.generation || (m.mode != "tmux" && m.mode != "tmux-view") {
+	if result.generation != m.tmux.generation || (m.tab != tabTmux && m.mode != "tmux" && m.mode != "tmux-view") {
 		return m, nil
 	}
-	if result.sessions != nil {
-		m.mode = "tmux"
+	if result.sessions != nil && m.mode == "tmux-view" {
+		m.mode = ""
 	}
 	m.tmux.loaded = true
 	m.tmux.err = result.err
-	if m.mode == "tmux" {
+	if m.mode != "tmux-view" {
 		m.tmux.panePreview = panePreview{}
 		m.tmux.sessions = result.sessions
 		if m.tmux.selectedIndex() < 0 {
@@ -110,17 +110,61 @@ func (m model) updateTmux(result tmuxResult) (tea.Model, tea.Cmd) {
 	return m, tea.Tick(time.Second, func(time.Time) tea.Msg { return tmuxRefresh(result.generation) })
 }
 
+func (m *model) closeTmux() {
+	if m.tmux.cancel != nil {
+		m.tmux.cancel()
+		m.tmux.cancel = nil
+	}
+	m.tmux.generation++
+}
+
+func (m model) tmuxTabKey(k string) (tea.Model, tea.Cmd) {
+	switch k {
+	case "ctrl+c", "q":
+		return m.quit()
+	case "left", "shift+tab":
+		m.selectTab(m.tab - 1)
+		return m, nil
+	case "right", "tab":
+		m.selectTab(m.tab + 1)
+		return m, nil
+	case "f5", "r":
+		m.tmux.loaded = false
+		m.tmux.err = nil
+		return m, m.loadTmux()
+	case ",":
+		m.selectTab(tabSettings)
+		m.settingsEditing = true
+		m.settingRow = 0
+		return m, nil
+	case "f1", "?":
+		m.mode = "help"
+		return m, nil
+	case "enter":
+		if m.tmux.loaded && m.tmux.selected != "" {
+			m.mode = "tmux-view"
+			m.tmux.loaded = false
+			m.tmux.err = nil
+			return m, m.loadTmux()
+		}
+	case "up", "down", "k", "j", "pgup", "pgdown", "home", "end":
+		height := max(1, m.height-8)
+		if i := m.tmux.selectedIndex(); i >= 0 {
+			i = scrollRow(k, i, height, len(m.tmux.sessions)-1)
+			m.tmux.selected = m.tmux.sessions[i].ID
+		}
+	}
+	return m, nil
+}
+
 func (m model) tmuxKey(k string) (tea.Model, tea.Cmd) {
 	switch k {
 	case "ctrl+c":
 		return m.quit()
 	case "q", "esc":
-		if m.tmux.cancel != nil {
-			m.tmux.cancel()
-		}
-		m.tmux.generation++
+		m.closeTmux()
 		if m.mode == "tmux-view" {
-			m.mode = "tmux"
+			m.mode = ""
 			m.tmux.loaded = false
 			m.tmux.err = nil
 			return m, m.loadTmux()
@@ -146,6 +190,31 @@ func (m model) tmuxKey(k string) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m model) tmuxTabView(width int) []string {
+	t, p := m.locale().Text, m.palette()
+	lines := []string{m.header(width)}
+	if m.height >= 12 {
+		lines = append(lines, "")
+	}
+	lines = append(lines, m.tabs(width), p.muted.Render(strings.Repeat("─", width)))
+	if m.tmux.err != nil {
+		return append(lines, p.muted.Render(safe(m.tmux.err.Error())))
+	}
+	if !m.tmux.loaded {
+		return append(lines, p.muted.Render(t("loading")))
+	}
+	if len(m.tmux.sessions) == 0 {
+		return append(lines, p.muted.Render(t("empty_tmux")))
+	}
+	available := max(1, m.height-len(lines)-2)
+	start := max(0, m.tmux.selectedIndex()-available+1)
+	for _, s := range m.tmux.sessions[start:min(len(m.tmux.sessions), start+available)] {
+		label := p.arrow(safe(s.Name)+"  "+s.ID, s.ID == m.tmux.selected)
+		lines = append(lines, ansi.Truncate(label, width, "…"))
+	}
+	return lines
 }
 
 func (m model) tmuxLines(width int) []string {

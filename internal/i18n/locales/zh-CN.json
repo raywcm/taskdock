@@ -136,6 +136,8 @@
     "sessions": "个会话",
     "move_session": "移动选中会话",
     "monitor_parser_error": "无法渲染此输出。Esc 返回列表，Enter 可直接进入会话。",
+    "tmux_tab": "Tmux会话",
+    "tmux": "Tmux会话",
     "agents_tab": "Agents",
     "agents_preview_hint": "Enter 控制 · ←/→ 切换标签 · q 退出",
     "agents_control_hint": "Ctrl+Q / F12 返回 · Esc 逐级返回",

@@ -6,20 +6,18 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/raywcm/taskdock/internal/i18n"
 )
 
 type Settings struct {
-	SchemaVersion           int    `json:"schema_version"`
-	Language                string `json:"language"`
-	Theme                   string `json:"theme"`
-	ColorMode               string `json:"color_mode"`
-	RefreshSeconds          int    `json:"refresh_seconds"`
-	ShowResources           bool   `json:"show_resources"`
-	DefaultTab              string `json:"default_tab"`
-	HistoryRetentionSeconds int64  `json:"history_retention_seconds"`
+	SchemaVersion  int    `json:"schema_version"`
+	Language       string `json:"language"`
+	Theme          string `json:"theme"`
+	ColorMode      string `json:"color_mode"`
+	RefreshSeconds int    `json:"refresh_seconds"`
+	ShowResources  bool   `json:"show_resources"`
+	DefaultTab     string `json:"default_tab"`
 }
 
 // Older files stored the color mode in theme. An explicit color_mode wins.
@@ -37,6 +35,9 @@ func (s *Settings) UnmarshalJSON(data []byte) error {
 	}
 	if doc.ColorMode != nil {
 		s.ColorMode = *doc.ColorMode
+	}
+	if s.DefaultTab == "stop" {
+		s.DefaultTab = "running"
 	}
 	return nil
 }
@@ -65,15 +66,12 @@ func (draft Settings) EditsFrom(before Settings) SettingsEdit {
 		if draft.DefaultTab != before.DefaultTab {
 			current.DefaultTab = draft.DefaultTab
 		}
-		if draft.HistoryRetentionSeconds != before.HistoryRetentionSeconds {
-			current.HistoryRetentionSeconds = draft.HistoryRetentionSeconds
-		}
 		return current, nil
 	}
 }
 
 func Defaults() Settings {
-	return Settings{SchemaVersion: 1, Language: "auto", Theme: "terminal", ColorMode: "auto", RefreshSeconds: 2, ShowResources: true, DefaultTab: "running", HistoryRetentionSeconds: 3600}
+	return Settings{SchemaVersion: 1, Language: "auto", Theme: "terminal", ColorMode: "auto", RefreshSeconds: 2, ShowResources: true, DefaultTab: "running"}
 }
 
 func Themes() []string     { return []string{"classic", "terminal"} }
@@ -95,20 +93,10 @@ func (s Settings) Validate() error {
 	if s.RefreshSeconds != 1 && s.RefreshSeconds != 2 && s.RefreshSeconds != 5 {
 		return errors.New("refresh interval must be 1, 2 or 5 seconds")
 	}
-	if s.DefaultTab != "running" && s.DefaultTab != "stop" {
-		return errors.New("default tab must be running or stop")
-	}
-	if _, err := s.Retention(); err != nil {
-		return err
+	if s.DefaultTab != "running" && s.DefaultTab != "tmux" {
+		return errors.New("default tab must be running or tmux")
 	}
 	return nil
-}
-
-func (s Settings) Retention() (time.Duration, error) {
-	if s.HistoryRetentionSeconds < 0 || s.HistoryRetentionSeconds > 365*24*3600 {
-		return 0, errors.New("history retention must be between 0 and 365 days")
-	}
-	return time.Duration(s.HistoryRetentionSeconds) * time.Second, nil
 }
 
 type LanguageOption = i18n.LanguageOption
@@ -150,16 +138,6 @@ func With(s Settings, key, value string) (Settings, error) {
 			s.ShowResources = false
 		default:
 			return s, errors.New("resources must be on or off")
-		}
-	case "history-retention":
-		if value == "off" || value == "never" || value == "0" {
-			s.HistoryRetentionSeconds = 0
-		} else {
-			duration, err := time.ParseDuration(value)
-			if err != nil || duration < time.Second || duration%time.Second != 0 {
-				return s, errors.New("history-retention must be a whole duration such as 30m, 1h, 24h, or off")
-			}
-			s.HistoryRetentionSeconds = int64(duration / time.Second)
 		}
 	case "default-tab":
 		s.DefaultTab = value

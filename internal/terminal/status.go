@@ -228,7 +228,7 @@ func (s *statusScreen) updateMouse(out *strings.Builder) {
 		s.selection.Clear()
 	}
 	if s.scrollMouse {
-		next = vtscreen.MouseModes{Tracking: ansi.ModeMouseNormal, Encoding: ansi.ModeMouseExtSgr}
+		next = vtscreen.MouseModes{Tracking: ansi.ModeMouseButtonEvent, Encoding: ansi.ModeMouseExtSgr}
 	} else if s.readOnly {
 		next = vtscreen.MouseModes{}
 	} else if !s.rawInput && next.CellTracking() != 0 {
@@ -315,9 +315,15 @@ func (s *statusScreen) followLive() {
 }
 
 func (s *statusScreen) applyFollow() {
-	if s.follow.Swap(false) && s.viewport.Scrolled() {
-		s.viewport.Reset()
-		s.dirty = true
+	if s.follow.Swap(false) {
+		if s.selection.Active || s.selection.Dragging {
+			s.selection.Clear()
+			s.dirty = true
+		}
+		if s.viewport.Scrolled() {
+			s.viewport.Reset()
+			s.dirty = true
+		}
 	}
 }
 

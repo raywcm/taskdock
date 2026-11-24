@@ -197,7 +197,7 @@ class Harness:
 def test_settings_and_session_controls(h):
     h.cli('settings', 'reset')
     changes = [('language','fr'), ('theme','terminal'), ('color-mode','light'), ('refresh','5'),
-               ('resources','off'), ('default-tab','stop'), ('history-retention','off')]
+               ('resources','off'), ('default-tab','tmux')]
     with (h.state/'catalog.lock').open('r+') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         writers = [subprocess.Popen(h.base + ['settings','set',key,value], env=ENV)
@@ -205,13 +205,13 @@ def test_settings_and_session_controls(h):
     assert all(p.wait(timeout=5) == 0 for p in writers)
     saved = json.loads(h.cli('settings','--json').stdout)
     assert saved == dict(schema_version=1, language='fr', theme='terminal', color_mode='light', refresh_seconds=5,
-                         show_resources=False, default_tab='stop', history_retention_seconds=0), saved
+                         show_resources=False, default_tab='tmux'), saved
     task = h.create('settings-recovery', '/bin/sh', '-c', 'echo retained; read hold')
     settings = h.state/'settings.json'
     try:
         settings.write_bytes(b'{"theme":')
         listing = h.cli('ls','--json')
-        assert json.loads(listing.stdout)[0]['spec']['id'] == task and b'settings.json' in listing.stderr
+        assert json.loads(listing.stdout)[0]['spec']['id'] == task
         assert h.show(task)['health'] == 'online'
         until(lambda: b'retained' in h.cli('logs',task).stdout)
         h.cli('stop',task)
@@ -235,7 +235,7 @@ def test_lifecycle(h):
     assert b'ready' in h.cli('logs', task).stdout
     h.cli('stop', task)
     assert h.show(task)['runtime']['exit_code'] == 143
-    assert any(r['spec']['id'] == task for r in json.loads(h.cli('ls', '--history', '--json').stdout))
+    assert any(r['spec']['id'] == task for r in json.loads(h.cli('ls', '--json').stdout))
     h.cli('delete', task)
     assert h.cli('show', task, check=False).returncode != 0
     canonical=[str(h.binary),'--state-dir',str(h.state.resolve()),'ls','--json']
@@ -521,11 +521,9 @@ def test_tui(h):
             open_stop_dialog()
             os.write(fd,b'y');drain(fd,.2)
             ui.finished('tui-renamed');drain(fd,.3)
-            os.write(fd,b'\x1b[C');drain(fd,.2)
-            os.write(fd,b'\x1b[3~');drain(fd)
-            os.write(fd,b'y');drain(fd,.3)
+            ui.cli('delete',created)
             until(lambda:json.loads(ui.cli('ls','--json').stdout)==[])
-            os.write(fd,b'\x1b');drain(fd);assert ui.join(pid)==0
+            os.write(fd,b'q');drain(fd);assert ui.join(pid)==0
         finally:ui.cleanup()
     print('PASS TUI new/enter/detach, rename, stop confirmation/cancellation, delete confirmation and quit',flush=True)
 

@@ -30,7 +30,6 @@ def main():
         h = Harness(root, binary)
         try:
             h.cli('settings', 'set', 'language', 'en')
-            h.cli('settings', 'set', 'history-retention', 'off')
             ref = h.create('idle-work', sys.executable, '-c', FIXTURE, 'idle')
             runtime = h.show(ref)['runtime']
             for mode in ['attach', 'read-only', 'list', 'monitor']:

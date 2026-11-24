@@ -9,7 +9,7 @@ def main():
  with tempfile.TemporaryDirectory(prefix='tdock-tmux-') as root:
   h=Harness(root,binary)
   try:
-   h.cli('settings','set','language','en');h.cli('settings','set','history-retention','off')
+   h.cli('settings','set','language','en')
    record=json.loads(h.cli('new-session','-ds','work','-c',root,'--json','--','/bin/sh','-c','read value').stdout)
    ref=record['spec']['id'];before=h.show(ref)['runtime']
    assert record['spec']['dir']==root
@@ -43,7 +43,7 @@ def main():
    assert h.show(ref)['spec']['name']=='work' and h.show(ref)['health']=='online'
    assert json.loads(h.cli('list-sessions','--json').stdout)==json.loads(h.cli('ls','--json').stdout)
    h.cli('stop','work');assert h.cli('has','-t','work',check=False).returncode==1
-   assert any(r['spec']['id']==ref for r in json.loads(h.cli('ls','--history','--json').stdout))
+   assert any(r['spec']['id']==ref for r in json.loads(h.cli('ls','--json').stdout))
    assert h.cli('new','-Ads','work',check=False).returncode!=0
    h.cli('delete','work')
    live=h.create('live',sys.executable,'-c',FIXTURE);until(lambda:b'MODES-READY' in h.cli('logs',live).stdout)

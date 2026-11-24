@@ -132,6 +132,8 @@
     "sessions": "セッション",
     "move_session": "セッションを移動",
     "monitor_parser_error": "この出力を描画できません。Esc で一覧、Enter で直接接続。",
+    "tmux_tab": "Tmuxセッション",
+    "tmux": "Tmuxセッション",
     "agents_tab": "Agents",
     "agents_preview_hint": "Enter 操作 · ←/→ タブ · q 終了",
     "agents_control_hint": "Ctrl+Q / F12 戻る · Esc ナビゲーション",

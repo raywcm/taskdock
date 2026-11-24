@@ -48,7 +48,6 @@ def main():
         harness = Harness(root, binary)
         try:
             harness.cli("settings", "set", "language", "en")
-            harness.cli("settings", "set", "history-retention", "off")
             historical = harness.create("a-historical", sys.executable, "-c", FIXTURE, "historical")
             healthy = harness.create("b-healthy", sys.executable, "-c", FIXTURE, "healthy")
             before = {

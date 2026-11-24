@@ -200,13 +200,8 @@ def test_dialogs_and_names(h):
     os.write(fd,b's');wait_view(fd,terminal,lambda text:'Confirm stop' in text)
     os.write(fd,b'\x1b[C\r');h.finished(created['spec']['id'])
     wait_view(fd,terminal,lambda text:'Confirm stop' not in text)
-    os.write(fd,b'\x1b[C');wait_view(fd,terminal,lambda text:'work-2' in text and 'History' in text)
-    os.write(fd,b'\x1b[3~');wait_view(fd,terminal,lambda text:'Confirm deletion' in text)
-    modal(terminal,'Confirm deletion',fd=fd)
-    os.write(fd,b'\r');wait_view(fd,terminal,lambda text:'Confirm deletion' not in text)
-    assert any(r['spec']['id']==old for r in records(h))
-    os.write(fd,b'\x1b[3~');wait_view(fd,terminal,lambda text:'Confirm deletion' in text)
-    os.write(fd,b'y');until(lambda:all(r['spec']['id']!=old for r in records(h)))
+    os.write(fd,b'\x1b[C');wait_view(fd,terminal,lambda text:'Tmux' in text)
+    h.cli('delete',old);until(lambda:all(r['spec']['id']!=old for r in records(h)))
     os.write(fd,b'q');drain(fd);assert h.join(pid)==0
     for ref in [work,source]:assert identity(h,ref)==original[ref]
     print('PASS centered stop/delete/duplicate-name dialogs, default Cancel/selected action, rename/new numbered suggestions include history, race prompts again, no silent changes to existing tasks',flush=True)
@@ -270,7 +265,7 @@ def main():
         with tempfile.TemporaryDirectory(prefix='tdock-monitor-ui-') as root:
             h=Harness(root,old if test==test_monitor else frontend)
             try:
-                h.cli('settings','set','language','en');h.cli('settings','set','history-retention','off')
+                h.cli('settings','set','language','en')
                 if test==test_monitor:test(h,frontend)
                 else:test(h)
             finally:h.cleanup()

@@ -219,7 +219,7 @@ def test_old_broker(binary,old_binary):
     with tempfile.TemporaryDirectory(prefix='tdock-modes-old-') as root:
         h=Harness(root,old_binary)
         try:
-            h.cli('settings','set','language','en');h.cli('settings','set','history-retention','off')
+            h.cli('settings','set','language','en')
             ref=h.create('old-broker',sys.executable,'-c',FIXTURE)
             before=h.show(ref)['runtime']
             h.binary=binary
@@ -241,7 +241,7 @@ def test_old_broker(binary,old_binary):
         h=Harness(root,binary)
         connections=[]
         try:
-            h.cli('settings','set','language','en');h.cli('settings','set','history-retention','off')
+            h.cli('settings','set','language','en')
             ref=h.create('legacy-client',sys.executable,'-c',FIXTURE)
             h.binary=old_binary
             pid,fd=h.spawn_tty('attach',ref);term=Terminal()
@@ -266,7 +266,7 @@ def main():
         h=Harness(root,binary)
         try:
             h.cli('settings','set','language','en')
-            h.cli('settings','set','history-retention','off')
+            h.cli('settings','set','language','en')
             test_protocol(h)
             # Remove only this suite's completed records to keep UI selection deterministic.
             for record in json.loads(h.cli('ls','--json').stdout):h.cli('delete',record['spec']['id'])

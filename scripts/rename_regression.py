@@ -23,7 +23,6 @@ def main():
         h.state = root/'data/mtask'
         try:
             h.cli('settings', 'set', 'language', 'en')
-            h.cli('settings', 'set', 'history-retention', 'off')
             task = h.create('before-upgrade', '/bin/sh', '-c', 'printf LEGACY-READY; read value; printf "GOT:%s\\n" "$value"; read more')
             original = h.show(task)['runtime']
             digest = hashlib.sha256(str(h.state.resolve()).encode()).hexdigest()[:12]
@@ -38,7 +37,7 @@ def main():
 
             rows = json.loads(default('ls', '--json'))
             assert next(r for r in rows if r['spec']['id'] == task)['health'] == 'online'
-            assert json.loads(default('settings', '--json'))['history_retention_seconds'] == 0
+            assert json.loads(default('settings', '--json'))['language'] == 'en'
             assert not (root/'data/taskdock').exists(), 'upgrade split the existing catalog'
             # Read-only attachment uses the old private socket and retains its lease safety.
             pid, fd = h.spawn_tty('attach', task, '--read-only')

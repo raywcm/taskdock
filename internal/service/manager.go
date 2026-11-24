@@ -16,7 +16,6 @@ import (
 
 	"github.com/raywcm/taskdock/internal/config"
 	"github.com/raywcm/taskdock/internal/daemon"
-	"github.com/raywcm/taskdock/internal/history"
 	"github.com/raywcm/taskdock/internal/ipc"
 	"github.com/raywcm/taskdock/internal/metrics"
 	"github.com/raywcm/taskdock/internal/store"
@@ -24,9 +23,8 @@ import (
 )
 
 type Manager struct {
-	Store       *store.JSON
-	sampler     *metrics.Sampler
-	maintenance bool
+	Store   *store.JSON
+	sampler *metrics.Sampler
 }
 
 func New(state string) (*Manager, error) {
@@ -42,16 +40,8 @@ func (m *Manager) Move(ctx context.Context, id task.ID, direction int) error {
 	return m.Store.Move(ctx, id, direction)
 }
 func (m *Manager) UpdateSettings(ctx context.Context, edit config.SettingsEdit) (config.Settings, error) {
-	settings, err := m.Store.UpdateSettings(ctx, edit)
-	if err != nil {
-		return config.Settings{}, err
-	}
-	if err := history.Ensure(m.Store); err != nil {
-		return settings, fmt.Errorf("settings saved but history cleanup could not start: %w", err)
-	}
-	return settings, nil
+	return m.Store.UpdateSettings(ctx, edit)
 }
-func (m *Manager) EnableHistory() error { m.maintenance = true; return history.Ensure(m.Store) }
 func (m *Manager) Resources(ctx context.Context, records []task.Record) map[task.ID]task.Resources {
 	return m.sampler.Sample(ctx, records)
 }
@@ -62,9 +52,6 @@ func (m *Manager) List(ctx context.Context) ([]task.Record, error) {
 }
 
 func (m *Manager) ListWithWarnings(ctx context.Context) ([]task.Record, []error, error) {
-	if m.maintenance {
-		_ = history.Ensure(m.Store)
-	}
 	records, warnings, err := m.Store.ListWithWarnings(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -204,11 +191,6 @@ func (m *Manager) CreateWindow(ctx context.Context, name, windowName string, arg
 			// is also the full ID or ID prefix of another task.
 			return r, &NameConflictError{Name: name, Suggestion: SuggestedName(records, name, "")}
 		}
-	}
-	if m.maintenance {
-		// Let the worker survive an interrupted first launch, even if this
-		// process exits before it gets to start the broker.
-		_ = history.StartWorker(m.Store)
 	}
 	if err := m.Store.Create(ctx, spec); err != nil {
 		return task.Record{}, err

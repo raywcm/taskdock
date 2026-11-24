@@ -24,16 +24,16 @@ import (
 
 const (
 	tabRunning = iota
-	tabStop
+	tabTmux
 	tabSettings
 	tabCount
 )
 
 const tabAgents = tabCount
 
-const settingsCount = 7
+const settingsCount = 6
 
-var tabNames = [...]string{"running", "stop", "settings", "Agents"}
+var tabNames = [...]string{"running", "tmux", "settings", "Agents"}
 
 type Backend interface {
 	service.TaskList
@@ -110,7 +110,6 @@ type model struct {
 	searchCursor                         int
 	repaintPending                       bool
 	quitting                             bool
-	history                              historyState
 	input                                textinput.Model
 	busy, loading                        bool
 	settings, draft                      config.Settings
@@ -146,8 +145,8 @@ func newModel(ctx context.Context, catalog Backend, notice error, options Option
 	if tab == "" {
 		tab = settings.DefaultTab
 	}
-	if tab == "stop" {
-		m.tab = tabStop
+	if tab == "tmux" {
+		m.tab = tabTmux
 	}
 	m.lastTaskTab = m.tab
 	m.monitoring = options.State.Monitor && m.tab == tabRunning
@@ -192,12 +191,12 @@ func active(r task.Record) bool {
 func (m model) tooSmall() bool { return m.width < 26 || m.height < 9 }
 
 func (m model) rows(tab int) []task.Record {
-	if tab < tabRunning || tab > tabStop {
+	if tab != tabRunning {
 		return nil
 	}
 	rows := make([]task.Record, 0, len(m.tasks))
 	for _, r := range m.tasks {
-		if active(r) == (tab == 0) {
+		if active(r) {
 			rows = append(rows, r)
 		}
 	}
@@ -215,7 +214,7 @@ func refreshedCursor(rows []task.Record, id task.ID, cursor int) int {
 }
 
 func (m model) current() (task.Record, bool) {
-	if m.tab >= tabSettings {
+	if m.tab != tabRunning {
 		return task.Record{}, false
 	}
 	rows := m.rows(m.tab)
@@ -282,7 +281,11 @@ func (m *model) startLoad() tea.Cmd {
 }
 func tickCmd() tea.Cmd { return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tick(t) }) }
 func (m model) Init() tea.Cmd {
-	return tea.Batch(func() tea.Msg { return tick(time.Now()) }, tea.RequestBackgroundColor)
+	cmds := []tea.Cmd{func() tea.Msg { return tick(time.Now()) }, tea.RequestBackgroundColor}
+	if m.tab == tabTmux {
+		cmds = append(cmds, m.loadTmux())
+	}
+	return tea.Batch(cmds...)
 }
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	next, cmd := m.update(msg)
@@ -292,6 +295,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if updated.tab == tabAgents && m.tab != tabAgents {
 		cmd = tea.Batch(cmd, updated.openAgents())
+	}
+	if updated.tab != tabTmux && m.tab == tabTmux {
+		updated.closeTmux()
+	}
+	if updated.tab == tabTmux && m.tab != tabTmux {
+		updated.tmux.loaded = false
+		updated.tmux.err = nil
+		cmd = tea.Batch(cmd, updated.loadTmux())
 	}
 
 	if updated.monitorInput != nil {
@@ -357,7 +368,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tmuxResult:
 		return m.updateTmux(msg)
 	case tmuxRefresh:
-		if (m.mode == "tmux" || m.mode == "tmux-view") && uint64(msg) == m.tmux.generation {
+		if (m.tab == tabTmux || m.mode == "tmux" || m.mode == "tmux-view") && uint64(msg) == m.tmux.generation {
 			return m, m.loadTmux()
 		}
 		return m, nil
@@ -418,15 +429,6 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case exitRequested:
 		return m.quit()
-	case historyLoaded:
-		if m.mode != "history" || msg.generation != m.history.generation {
-			return m, nil
-		}
-		m.history.ready = true
-		m.history.err = msg.err
-		m.history.textViewport = msg.textViewport
-		m.history.y = m.history.bottom(m.historyHeight())
-		return m, tea.ClearScreen
 	case checkedName:
 		m.busy = false
 		if msg.err != nil {
@@ -567,9 +569,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, tickCmd())
 	case tea.WindowSizeMsg:
 		changed := m.width != msg.Width || m.height != msg.Height
-		if m.mode == "history" {
-			m.history.resize(msg.Width-4, m.historyHeight(), msg.Height-historyChromeRows)
-		} else if m.mode == "tmux-view" {
+		if m.mode == "tmux-view" {
 			m.tmux.resize(msg.Width-4, m.height-tmuxHeaderRows, msg.Height-tmuxHeaderRows)
 		}
 		m.width, m.height = max(1, msg.Width), max(1, msg.Height)
@@ -660,11 +660,11 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.tab == tabTmux && m.mode == "" {
+			return m.tmuxTabKey(k)
+		}
 		if k == "ctrl+c" {
 			return m.quit()
-		}
-		if m.mode == "history" {
-			return m.historyKey(k)
 		}
 		if m.mode == "settings" {
 			return m.updateSettings(k)
@@ -783,10 +783,8 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.busy || m.monitoring {
 					return m, nil
 				}
-				m.mode = "tmux"
-				m.tmux.loaded = false
-				m.tmux.err = nil
-				return m, m.loadTmux()
+				m.selectTab(tabTmux)
+				return m, nil
 			case "shift+up", "shift+down":
 				if m.busy || m.monitoring {
 					return m, nil
@@ -866,7 +864,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if r, ok := m.current(); ok {
 					if !active(r) {
-						return m, m.openHistory(r)
+						return m, nil
 					}
 					m.selected = Selection{Kind: "attach", ID: r.Spec.ID, State: m.state()}
 					return m.quit()
@@ -1010,27 +1008,7 @@ func (m *model) adjustSetting(step int) {
 	case 4:
 		m.draft.ShowResources = !m.draft.ShowResources
 	case 5:
-		m.draft.DefaultTab = cycle(m.draft.DefaultTab, []string{"running", "stop"}, step)
-	case 6:
-		values := []int64{0, 300, 900, 1800, 3600, 21600, 86400, 604800}
-		current := m.draft.HistoryRetentionSeconds
-		if step > 0 {
-			m.draft.HistoryRetentionSeconds = values[0]
-			for _, value := range values {
-				if value > current {
-					m.draft.HistoryRetentionSeconds = value
-					break
-				}
-			}
-		} else {
-			m.draft.HistoryRetentionSeconds = values[len(values)-1]
-			for i := len(values) - 1; i >= 0; i-- {
-				if values[i] < current {
-					m.draft.HistoryRetentionSeconds = values[i]
-					break
-				}
-			}
-		}
+		m.draft.DefaultTab = cycle(m.draft.DefaultTab, []string{"running", "tmux"}, step)
 	}
 }
 
@@ -1080,7 +1058,7 @@ func Run(ctx context.Context, catalog Backend, input io.Reader, output io.Writer
 			final.cancelLoad()
 		}
 		final.closeMonitor()
-		final.closeHistory()
+		final.closeTmux()
 		final.closeAgents()
 	}
 	if errors.Is(err, tea.ErrInterrupted) ||

@@ -132,6 +132,8 @@
     "sessions": "sessions",
     "move_session": "Move selected session",
     "monitor_parser_error": "Cannot render this output. Esc: list; Enter: native session.",
+    "tmux_tab": "Tmux",
+    "tmux": "Tmux",
     "agents_tab": "Agents",
     "agents_preview_hint": "Enter control · ←/→ tabs · q quit",
     "agents_control_hint": "Ctrl+Q / F12 back · Esc navigate",

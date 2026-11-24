@@ -38,7 +38,7 @@ def main():
         ('connections', ['connection_modes_regression.py']),
         ('monitor', ['monitor_dialog_regression.py']),
         ('history-view', ['history_view_regression.py']),
-        ('history-retention', ['history_regression.py']),
+        ('tmux-tab', ['ui_regression.py', 'tmux_view_regression.py']),
         ('tui-exit', ['tui_exit_regression.py']),
         ('detach-keys', ['detach_keys_regression.py']),
         ('bounded-soak', ['stress.py', '--binary', str(binary), '--tasks', '16', '--seconds', '5']),

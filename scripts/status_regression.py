@@ -170,7 +170,7 @@ while True:
         if monitor:
             wait_view(fd, terminal, lambda text: "inline-agent" in text)
             os.write(fd, b"v")
-        reporting = 1002 if monitor else 1000
+        reporting = 1002
         live_marker = "Earlier row 060" if monitor else "INLINE-PROMPT"
         wait_view(fd, terminal, lambda text: live_marker in text
                   and reporting << 5 in terminal.current.mode
@@ -328,7 +328,6 @@ def main():
         harness = Harness(root, binary)
         try:
             harness.cli("settings", "set", "language", "en")
-            harness.cli("settings", "set", "history-retention", "off")
             check_status(harness)
             check_window_names(harness)
             check_mouse_boundaries(harness)

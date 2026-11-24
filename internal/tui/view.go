@@ -108,18 +108,17 @@ func (m model) tabs(width int) string {
 			labels[i] = ansi.Truncate(label, labelWidth, "…")
 		}
 	} else if countSpace >= 2 {
-		// Tab counts need only one pass, regardless of how many rows fit on screen.
-		running := 0
-		for i := range m.tasks {
-			if active(m.tasks[i]) {
-				running++
-			}
+		live := strconv.Itoa(len(m.rows(tabRunning)))
+		tmuxCount := ""
+		if m.tmux.loaded {
+			tmuxCount = strconv.Itoa(len(m.tmux.sessions))
 		}
-		live, history := strconv.Itoa(running), strconv.Itoa(len(m.tasks)-running)
-		if len(live)+len(history) <= countSpace {
+		if len(live)+len(tmuxCount) <= countSpace {
 			gap = "   "
 			labels[tabRunning] += " " + live
-			labels[tabStop] += " " + history
+			if tmuxCount != "" {
+				labels[tabTmux] += " " + tmuxCount
+			}
 		}
 	}
 	for i, text := range labels {
@@ -183,14 +182,14 @@ func (m model) helpLine(width int) string {
 		hint, compact = t("help_close_hint"), "Esc / ?"
 	case m.mode == "search":
 		hint, compact = t("search_hint"), "↑↓ Enter Esc"
-	case m.mode == "history":
-		hint, compact = t("history_hint"), "↑↓ PgUp/PgDn Esc"
 	case m.mode == "connect":
 		hint, compact = t("connection_hint"), "↑↓ Enter Esc"
 	case m.mode == "new" || m.mode == "rename":
 		hint, compact = t("edit_hint"), "Enter Esc"
 	case m.hasDialog():
 		hint, compact = t("confirm_hint"), "Enter Esc"
+	case m.tab == tabTmux:
+		hint, compact = "↑/↓ "+t("select")+" · Enter "+t("monitor")+" · F5 "+t("refresh")+" · ←→ "+t("tabs_short")+" · q "+t("quit"), "↑↓ Enter F5 ←→ q"
 	case m.tab == tabAgents:
 		hint, compact = t("agents_preview_hint"), "←→ Enter q"
 		if m.agents.control {
@@ -214,9 +213,6 @@ func (m model) helpLine(width int) string {
 		return p.muted.Render(ansi.Truncate(compact, width, "…"))
 	}
 	enterLabel := t("attach")
-	if m.tab == tabStop {
-		enterLabel = t("view_history")
-	}
 	bindings := [][2]string{{"←→", t("tabs_short")}, {"↑↓", t("select")}, {"Enter", enterLabel}, {"v", t("monitor")}, {"t", "tmux"}, {"n", t("new")}, {"Ctrl+F", t("search_sessions")}, {"?", t("help")}, {"q", t("quit")}}
 	items := []string{}
 	for _, binding := range bindings {
@@ -315,7 +311,7 @@ func (m model) settingsView(width int) []string {
 	options := [settingsCount][2]string{
 		{t("language"), language}, {t("theme"), t(m.draft.Theme)}, {t("color_mode"), t(m.draft.ColorMode)},
 		{t("interval"), m.retentionLabel(int64(m.draft.RefreshSeconds))}, {t("resources"), on},
-		{t("default_tab"), t(m.draft.DefaultTab)}, {t("auto_delete"), m.retentionLabel(m.draft.HistoryRetentionSeconds)},
+		{t("default_tab"), t(m.draft.DefaultTab)},
 	}
 	version := t("version") + "  v" + strings.TrimPrefix(m.version, "v")
 	lines := []string{m.header(width), "", m.tabs(width), p.rule(width), p.muted.Render(version), ""}
@@ -338,9 +334,6 @@ func (m model) helpView(width int) []string {
 	t := m.locale().Text
 	p := m.palette()
 	enterAction := t("attach")
-	if m.tab == tabStop {
-		enterAction = t("view_history")
-	}
 	tabKeys := "← / → · Tab / Shift+Tab"
 	if m.monitoring {
 		tabKeys = "Tab / Shift+Tab"
@@ -393,7 +386,7 @@ func (m model) View() tea.View {
 		return view
 	}
 	width := max(1, min(120, m.width-4))
-	if m.monitoring || m.mode == "history" || m.mode == "tmux-view" || m.tab == tabAgents {
+	if m.monitoring || m.mode == "tmux-view" || m.tab == tabAgents {
 		width = max(1, m.width-4)
 	}
 	t := m.locale().Text
@@ -413,8 +406,6 @@ func (m model) View() tea.View {
 		lines = m.helpView(width)
 	} else if m.mode == "search" {
 		lines = m.searchView(width)
-	} else if m.mode == "history" {
-		lines = m.historyView(width)
 	} else if m.mode == "connect" {
 		lines = m.connectionView(width)
 	} else if m.monitoring && m.tab == tabRunning {
@@ -423,6 +414,8 @@ func (m model) View() tea.View {
 		if showMonitor {
 			frame = &m.monitorFrame
 		}
+	} else if m.tab == tabTmux {
+		lines = m.tmuxTabView(width)
 	} else if m.tab == tabSettings {
 		lines = m.settingsView(width)
 	} else {
@@ -430,11 +423,7 @@ func (m model) View() tea.View {
 		lines = []string{m.header(width), "", m.tabs(width), p.rule(width)}
 		c := m.columns(max(1, width-4))
 		if !compact {
-			timeLabel := t("uptime")
-			if m.tab == 1 {
-				timeLabel = t("duration")
-			}
-			lines = append(lines, "  "+p.muted.Render(c.render(t("session"), t("id"), timeLabel, t("cpu"), t("memory"))))
+			lines = append(lines, "  "+p.muted.Render(c.render(t("session"), t("id"), t("uptime"), t("cpu"), t("memory"))))
 		}
 		rows := m.rows(m.tab)
 		footer := m.footer(max(1, m.width-4))

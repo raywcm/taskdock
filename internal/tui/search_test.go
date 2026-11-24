@@ -21,19 +21,19 @@ func TestSearchLargeListFiltersAllTabsAndScrolls(t *testing.T) {
 		m.tasks = append(m.tasks, record(t, fmt.Sprintf("Worker-%04d 中文", i), state))
 	}
 	m.openSearch()
-	m.input.SetValue("worker-1999 中文")
+	m.input.SetValue("worker-1998 中文")
 	rows := m.searchRows()
-	if len(rows) != 1 || rows[0].Spec.ID != m.tasks[1999].Spec.ID {
-		t.Fatal("case-insensitive terms did not match stopped records")
+	if len(rows) != 1 || rows[0].Spec.ID != m.tasks[1998].Spec.ID {
+		t.Fatal("case-insensitive terms did not match running records")
 	}
-	m.input.SetValue(string(m.tasks[1729].Spec.ID)[8:])
-	if rows := m.searchRows(); len(rows) != 1 || rows[0].Spec.ID != m.tasks[1729].Spec.ID {
+	m.input.SetValue(string(m.tasks[1728].Spec.ID)[8:])
+	if rows := m.searchRows(); len(rows) != 1 || rows[0].Spec.ID != m.tasks[1728].Spec.ID {
 		t.Fatal("ID search failed")
 	}
 	m.input.SetValue("")
 	next, _ := m.updateSearch(tea.KeyPressMsg{Code: tea.KeyEnd, Mod: tea.ModCtrl})
 	m = next.(model)
-	if m.searchCursor != 1999 || !strings.Contains(ansi.Strip(m.View().Content), "Worker-1999") {
+	if m.searchCursor != 999 || !strings.Contains(ansi.Strip(m.View().Content), "Worker-1998") {
 		t.Fatal("large result list did not scroll to its last row")
 	}
 	for _, size := range [][2]int{{80, 24}, {120, 30}, {40, 12}} {
@@ -140,27 +140,5 @@ func TestTinyWindowBlocksHiddenActionsAndFitsViewport(t *testing.T) {
 	m, _ = press(m, 'q')
 	if !m.quitting {
 		t.Fatal("advertised quit key did not exit")
-	}
-}
-
-func TestHistoryResizeClampsViewportBeforeNextNavigation(t *testing.T) {
-	m := readyModel(t)
-	m.mode = "history"
-	m.history = historyState{ready: true, textViewport: textViewport{maxWidth: 150, lines: make([]string, 100), x: 78, y: 81}}
-	n, _ := m.Update(tea.WindowSizeMsg{Width: 200, Height: 88})
-	m = n.(model)
-	if m.history.x != 0 || m.history.y != 17 {
-		t.Fatalf("stale history offset after grow: %d,%d", m.history.x, m.history.y)
-	}
-	n, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
-	m = n.(model)
-	if m.history.y != 81 {
-		t.Fatalf("latest output scrolled offscreen after shrink: %d", m.history.y)
-	}
-	n, _ = m.Update(tea.WindowSizeMsg{Width: 200, Height: 88})
-	m = n.(model)
-	m, _ = press(m, tea.KeyUp)
-	if m.history.y != 16 {
-		t.Fatalf("first key after resize did not move: %d", m.history.y)
 	}
 }

@@ -132,6 +132,8 @@
     "sessions": "sessions",
     "move_session": "Déplacer la session",
     "monitor_parser_error": "Impossible de rendre cette sortie. Esc : liste ; Entrée : session directe.",
+    "tmux_tab": "Tmux",
+    "tmux": "Tmux",
     "agents_tab": "Agents",
     "agents_preview_hint": "Entrée contrôler · ←/→ onglets · q quitter",
     "agents_control_hint": "Ctrl+Q / F12 retour · Échap navigation",

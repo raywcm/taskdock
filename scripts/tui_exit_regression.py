@@ -20,12 +20,11 @@ def main():
         h = Harness(root, binary)
         try:
             h.cli('settings', 'set', 'language', 'en')
-            h.cli('settings', 'set', 'history-retention', 'off')
             live = h.create('exit-live', '/bin/sh', '-c', 'printf LIVE; read value')
             stopped = h.create('exit-history', '/bin/sh', '-c', 'printf HISTORY')
             h.finished(stopped)
             before = h.show(live)['runtime']
-            for page in ('list', 'settings', 'dialog', 'monitor', 'history'):
+            for page in ('list', 'settings', 'dialog', 'monitor', 'tmux'):
                 for method in ('ctrl-c', 'SIGINT', 'SIGTERM', 'SIGHUP'):
                     terminal = Terminal()
                     terminal.feed(b'OUTER-SHELL-KEEP\r\nPROMPT> ')
@@ -41,9 +40,9 @@ def main():
                     elif page == 'monitor':
                         os.write(fd, b'v')
                         wait_view(fd, terminal, lambda text: 'LIVE' in text)
-                    elif page == 'history':
-                        os.write(fd, b'\t\r')
-                        wait_view(fd, terminal, lambda text: 'Output history' in text and 'HISTORY' in text)
+                    elif page == 'tmux':
+                        os.write(fd, b'\t')
+                        wait_view(fd, terminal, lambda text: 'Tmux' in text)
                     if method == 'ctrl-c':
                         if page == 'monitor':
                             os.write(fd, b'\x1b[24~')

@@ -46,10 +46,7 @@ func (v *textViewport) resize(width, oldHeight, height int) {
 func (m *model) scrollableText() (*textViewport, uv.Rectangle) {
 	var view *textViewport
 	var height int
-	switch {
-	case m.mode == "history" && m.history.ready && m.history.err == nil:
-		view, height = &m.history.textViewport, m.historyHeight()
-	case m.mode == "tmux-view" && m.tmux.loaded && m.tmux.err == nil:
+	if m.mode == "tmux-view" && m.tmux.loaded && m.tmux.err == nil {
 		view, height = &m.tmux.textViewport, m.height-tmuxHeaderRows
 	}
 	width := m.width - 4

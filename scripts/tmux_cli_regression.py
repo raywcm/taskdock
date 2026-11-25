@@ -44,8 +44,9 @@ def main():
    assert json.loads(h.cli('list-sessions','--json').stdout)==json.loads(h.cli('ls','--json').stdout)
    h.cli('stop','work');assert h.cli('has','-t','work',check=False).returncode==1
    assert any(r['spec']['id']==ref for r in json.loads(h.cli('ls','--json').stdout))
-   assert h.cli('new','-Ads','work',check=False).returncode!=0
-   h.cli('delete','work')
+   reused=h.cli('new','-Ads','work').stdout.decode().strip()
+   assert reused != ref
+   h.cli('stop',reused);h.cli('delete',reused);h.cli('delete',ref)
    live=h.create('live',sys.executable,'-c',FIXTURE);until(lambda:b'MODES-READY' in h.cli('logs',live).stdout)
    pid,fd=h.spawn_tty('new-session','-A','-s','live');wait_output(fd,b'[live]');os.write(fd,b'reused-live\n')
    wait_output(fd,b'ECHO:reused-live');os.write(fd,b'\x1b[24~');assert h.join(pid)==0

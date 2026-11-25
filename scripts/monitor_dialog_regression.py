@@ -149,12 +149,13 @@ def test_monitor(h,frontend):
 
 def test_dialogs_and_names(h):
     work=h.create('work',sys.executable,'-c',FIXTURE,'work')
-    old=h.create('work-2','/bin/sh','-c','exit 0');h.finished(old)
+    old=h.create('old-stopped','/bin/sh','-c','exit 0');h.finished(old)
+    work2=h.create('work-2',sys.executable,'-c',FIXTURE,'work2')
     source=h.create('rename-source',sys.executable,'-c',FIXTURE,'source')
-    original={ref:identity(h,ref) for ref in [work,source]}
+    original={ref:identity(h,ref) for ref in [work,work2,source]}
     pid,fd=h.spawn_tty();terminal=Terminal()
     wait_view(fd,terminal,lambda text:'rename-source' in text)
-    os.write(fd,b'\x1b[B\x1bOQ')
+    os.write(fd,b'\x1b[B\x1b[B\x1bOQ')
     wait_view(fd,terminal,lambda text:'New session name' in text)
     os.write(fd,b'\x01\x0bwork\r')
     wait_view(fd,terminal,lambda text:'Name already exists' in text and 'work-3' in text)
@@ -165,7 +166,7 @@ def test_dialogs_and_names(h):
     assert h.show(source)['spec']['name']=='rename-source'
     os.write(fd,b'\r')
     wait_view(fd,terminal,lambda text:'Name already exists' in text)
-    renamed_claim=h.create('work-3','/bin/sh','-c','exit 0');h.finished(renamed_claim)
+    h.create('work-3',sys.executable,'-c',FIXTURE,'work3')
     os.write(fd,b'y')
     wait_view(fd,terminal,lambda text:'Name already exists' in text and 'work-3-2' in text)
     modal(terminal,'Name already exists','work-3-2',fd=fd)
@@ -173,7 +174,7 @@ def test_dialogs_and_names(h):
     os.write(fd,b'y')
     until(lambda:h.show(source)['spec']['name']=='work-3-2')
     wait_view(fd,terminal,lambda text:'Name already exists' not in text and 'work-3-2' in text)
-    # New collisions count all names, including stopped history.
+    # New collisions count active sessions; stopped sessions do not block names.
     count=len(records(h))
     os.write(fd,b'n');wait_view(fd,terminal,lambda text:'New shell name' in text)
     os.write(fd,b'work\r')
@@ -183,14 +184,14 @@ def test_dialogs_and_names(h):
     assert len(records(h))==count
     os.write(fd,b'\r');wait_view(fd,terminal,lambda text:'Name already exists' in text)
     # Race: another process claims the reviewed suggestion before confirmation.
-    claimed=h.create('work-4','/bin/sh','-c','exit 0');h.finished(claimed)
+    h.create('work-4',sys.executable,'-c',FIXTURE,'work4')
     os.write(fd,b'y')
     wait_view(fd,terminal,lambda text:'Name already exists' in text and 'work-4-2' in text)
     modal(terminal,'Name already exists','work-4-2',fd=fd)
     assert len(records(h))==count+1,'race silently created an unreviewed alternative'
     os.write(fd,b'y')
     wait_view(fd,terminal,lambda text:'[work-4-2] 0:' in terminal.display[-1] and 'Name already exists' not in text)
-    created=next(r for r in records(h) if r['spec']['name']=='work-4-2')
+    created=next(r for r in records(h) if r['spec']['name']=='work-4-2' and r['runtime']['state']!='exited')
     os.write(fd,b'\x11');wait_view(fd,terminal,lambda text:terminal.alternate and 'Memory' in text)
     def open_stop_dialog():
         def visible():

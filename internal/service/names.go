@@ -18,10 +18,14 @@ func (e *NameConflictError) Error() string {
 	return fmt.Sprintf("task name %q already exists; suggested name: %q", e.Name, e.Suggestion)
 }
 
+func activeRecord(r task.Record) bool {
+	return r.Runtime == nil || r.Runtime.State == task.Running || r.Runtime.State == task.Starting || r.Runtime.State == task.Stopping
+}
+
 func SuggestedName(records []task.Record, name string, exclude task.ID) string {
 	used := make(map[string]bool, len(records))
 	for _, r := range records {
-		if r.Spec.ID != exclude {
+		if activeRecord(r) && r.Spec.ID != exclude {
 			used[r.Spec.Name] = true
 		}
 	}

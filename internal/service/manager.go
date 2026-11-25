@@ -127,8 +127,13 @@ func (m *Manager) Resolve(ctx context.Context, ref string) (task.Record, error) 
 	var byName *task.Record
 	for i := range records {
 		if records[i].Spec.Name == ref {
-			byName = &records[i]
-			break
+			if activeRecord(records[i]) {
+				byName = &records[i]
+				break
+			}
+			if byName == nil {
+				byName = &records[i]
+			}
 		}
 	}
 	var byPrefix []task.Record
@@ -186,7 +191,7 @@ func (m *Manager) CreateWindow(ctx context.Context, name, windowName string, arg
 		return task.Record{}, err
 	}
 	for _, r := range records {
-		if r.Spec.Name == name {
+		if activeRecord(r) && r.Spec.Name == name {
 			// Preserve the exact name match for new -A, even when the name
 			// is also the full ID or ID prefix of another task.
 			return r, &NameConflictError{Name: name, Suggestion: SuggestedName(records, name, "")}
@@ -266,7 +271,7 @@ func (m *Manager) Rename(ctx context.Context, ref, name string) error {
 		return err
 	}
 	for _, other := range records {
-		if other.Spec.ID != r.Spec.ID && other.Spec.Name == name {
+		if activeRecord(other) && other.Spec.ID != r.Spec.ID && other.Spec.Name == name {
 			return &NameConflictError{Name: name, Suggestion: SuggestedName(records, name, r.Spec.ID)}
 		}
 	}

@@ -68,6 +68,39 @@ func TestNameConflictReturnsSuggestionWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestStoppedSessionNameCanBeReusedAndResolvePrefersActive(t *testing.T) {
+	m, err := New(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	now, code := time.Now(), 0
+	instID, _ := task.NewID()
+	exited := nameRecord("agy")
+	exited.Runtime = &task.Runtime{SchemaVersion: 1, TaskID: exited.Spec.ID, InstanceID: instID, State: task.Exited, BrokerPID: 123, ChildPID: 124, StartedAt: &now, FinishedAt: &now, UpdatedAt: now, ExitCode: &code}
+	other := nameRecord("other")
+	for _, r := range []task.Record{exited, other} {
+		if err := m.Store.Create(ctx, r.Spec); err != nil {
+			t.Fatal(err)
+		}
+		if r.Runtime != nil {
+			if err := m.Store.SaveRuntime(ctx, *r.Runtime); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if got := SuggestedName([]task.Record{exited}, "agy", ""); got != "agy" {
+		t.Fatalf("exited record blocked name reuse: %q", got)
+	}
+	if err := m.Rename(ctx, string(other.Spec.ID), "agy"); err != nil {
+		t.Fatalf("rename to exited session name failed: %v", err)
+	}
+	resolved, err := m.Resolve(ctx, "agy")
+	if err != nil || resolved.Spec.ID != other.Spec.ID {
+		t.Fatalf("resolve did not prefer active session: %+v %v", resolved, err)
+	}
+}
+
 func TestResolveRejectsNameThatAlsoMatchesAnotherID(t *testing.T) {
 	m, err := New(filepath.Join(t.TempDir(), "state"))
 	if err != nil {
